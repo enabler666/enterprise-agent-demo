@@ -34,3 +34,4 @@ cd agent && uv run uvicorn app.main:app --reload --port 8000
 
 - [Java 后端说明](backend/README.md)
 - [需求查询 API](docs/requirement-api.md)
+- [开发执行计划](docs/development-plan.md)
