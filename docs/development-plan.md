@@ -42,7 +42,7 @@
 | 4 | Python 配置、Pydantic 模型、Java RequirementClient | 已完成 | `feat: 添加需求后端 Client` |
 | 5 | 需求查询 Agent 工具 | 已完成 | `feat: 添加需求查询工具` |
 | 6 | DeepSeek 与 LangGraph Agent | 已完成 | `feat: 添加 DeepSeek 需求查询 Agent` |
-| 7 | FastAPI 聊天接口与端到端联调 | 待开始 | `feat: 开放需求 Agent 聊天接口` |
+| 7 | FastAPI 聊天接口与端到端联调 | 已完成 | `feat: 开放需求 Agent 聊天接口` |
 
 ## 已完成阶段的验收记录
 

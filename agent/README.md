@@ -61,6 +61,33 @@ Client 使用 `httpx.AsyncClient`，支持依赖注入和 `MockTransport` 测试
 
 当前默认模型仍为 `deepseek-chat`，可通过 `DEEPSEEK_MODEL` 替换。DeepSeek 官方已提示该别名将在 2026-07-24 弃用，部署时应按账号可用模型更新环境变量。
 
+## 聊天接口
+
+```http
+POST /chat
+Content-Type: application/json
+```
+
+请求体：
+
+```json
+{
+  "userId": "user-001",
+  "sessionId": "session-001",
+  "message": "查询 XQ202607001 的当前进度"
+}
+```
+
+`userId + sessionId` 在当前进程内唯一标识会话，最多保留最近 20 条消息；服务重启后会话会清空。当前实现不使用 Redis 或数据库。
+
+```bash
+curl -sS -X POST "http://localhost:8000/chat" \
+  -H "Content-Type: application/json" \
+  -d '{"userId":"user-001","sessionId":"session-001","message":"查询 XQ202607001"}'
+```
+
+缺少 `DEEPSEEK_API_KEY` 时，`/chat` 返回 `503 Service Unavailable` 和明确配置错误；`/health` 不受影响。
+
 测试与静态检查：
 
 ```bash

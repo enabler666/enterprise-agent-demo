@@ -1,0 +1,81 @@
+import asyncio
+
+import httpx
+
+from app.core.exceptions import AgentConfigurationError
+from app.main import create_app
+from app.schemas.chat import ChatRequest, ChatResponse
+
+
+class FakeChatService:
+    def __init__(self, configuration_error: bool = False) -> None:
+        self.configuration_error = configuration_error
+        self.requests: list[ChatRequest] = []
+        self.closed = False
+
+    async def chat(self, request: ChatRequest) -> ChatResponse:
+        if self.configuration_error:
+            raise AgentConfigurationError("未配置 DEEPSEEK_API_KEY，无法调用需求 Agent")
+        self.requests.append(request)
+        return ChatResponse(
+            answer=f"已收到：{request.message}",
+            user_id=request.user_id,
+            session_id=request.session_id,
+        )
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+def test_chat_returns_answer_and_uses_camel_case_contract() -> None:
+    service = FakeChatService()
+    app = create_app(service)
+
+    async def request() -> httpx.Response:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            return await client.post(
+                "/chat",
+                json={"userId": "user-001", "sessionId": "session-001", "message": "查询需求"},
+            )
+
+    response = asyncio.run(request())
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "answer": "已收到：查询需求",
+        "userId": "user-001",
+        "sessionId": "session-001",
+    }
+    assert service.requests[0].user_id == "user-001"
+
+
+def test_chat_rejects_blank_message() -> None:
+    app = create_app(FakeChatService())
+
+    async def request() -> httpx.Response:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            return await client.post(
+                "/chat",
+                json={"userId": "user-001", "sessionId": "session-001", "message": "  "},
+            )
+
+    assert asyncio.run(request()).status_code == 422
+
+
+def test_chat_returns_clear_error_when_agent_configuration_is_missing() -> None:
+    app = create_app(FakeChatService(configuration_error=True))
+
+    async def request() -> httpx.Response:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            return await client.post(
+                "/chat",
+                json={"userId": "user-001", "sessionId": "session-001", "message": "查询需求"},
+            )
+
+    response = asyncio.run(request())
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "未配置 DEEPSEEK_API_KEY，无法调用需求 Agent"

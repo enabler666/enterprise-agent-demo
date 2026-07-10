@@ -11,9 +11,12 @@ from app.schemas.requirement import (
     RequirementQuery,
     RequirementStatus,
 )
+from app.schemas.chat import ChatRequest, ChatResponse
 
 __all__ = [
     "ApiResponse",
+    "ChatRequest",
+    "ChatResponse",
     "PageResult",
     "Requirement",
     "RequirementProgress",
