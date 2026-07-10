@@ -1,4 +1,4 @@
-"""Stable result contract shared by all Agent tools."""
+"""所有 Agent 工具共用的稳定结果契约。"""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from pydantic import BaseModel, ValidationError
 
 
 class ToolExecutionStatus(StrEnum):
+    """工具状态与 HTTP 状态分离，方便后续 LangGraph 做分支判断。"""
     SUCCESS = "SUCCESS"
     NO_RESULT = "NO_RESULT"
     ERROR = "ERROR"
@@ -18,6 +19,10 @@ T = TypeVar("T")
 
 
 class ToolExecutionResult(BaseModel, Generic[T]):
+    """工具执行结果。
+
+``data`` 只在成功时存在；泛型 ``T`` 保留具体数据类型，避免工具使用方退化为无类型字典。
+"""
     status: ToolExecutionStatus
     data: T | None = None
     code: str

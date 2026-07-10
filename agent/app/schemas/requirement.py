@@ -1,4 +1,4 @@
-"""Pydantic contracts shared by the backend client and later agent tools."""
+"""Java 后端 Client 与后续 Agent 工具共用的数据契约。"""
 
 from __future__ import annotations
 
@@ -11,12 +11,17 @@ from pydantic.alias_generators import to_camel
 
 
 class JavaApiModel(BaseModel):
-    """Model that maps Python snake_case fields to the Java API's camelCase JSON."""
+    """Java JSON 与 Python 命名风格之间的适配基类。
+
+Python 推荐 ``snake_case``，Java API 返回 ``camelCase``；Pydantic 的 alias 配置负责
+双向转换，业务代码始终使用 Python 字段名。
+"""
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
 
 class RequirementStatus(StrEnum):
+    """``StrEnum`` 同时是字符串和枚举，序列化为 Java API 所需的状态文本。"""
     DRAFT = "DRAFT"
     PENDING_APPROVAL = "PENDING_APPROVAL"
     APPROVED = "APPROVED"
@@ -53,6 +58,7 @@ class RequirementProgress(JavaApiModel):
 
 
 class RequirementQuery(JavaApiModel):
+    """组合查询输入；字段校验在构造对象时完成。"""
     requirement_no: str | None = None
     title: str | None = None
     applicant_id: str | None = None
@@ -72,11 +78,13 @@ class RequirementQuery(JavaApiModel):
         return None if isinstance(value, str) and not value.strip() else value
 
     def as_query_params(self) -> dict[str, str | int]:
+        """转为 httpx 查询参数，``by_alias`` 输出 Java 使用的 camelCase 名称。"""
         values = self.model_dump(exclude_none=True, mode="json", by_alias=True)
         return {key: value for key, value in values.items() if value != ""}
 
     @model_validator(mode="after")
     def validate_created_range(self) -> RequirementQuery:
+        """``model_validator`` 在单字段转换后校验两个时间字段的关系。"""
         if self.created_from and self.created_to and self.created_from > self.created_to:
             raise ValueError("created_from must not be after created_to")
         return self
@@ -86,6 +94,7 @@ T = TypeVar("T")
 
 
 class PageResult(JavaApiModel, Generic[T]):
+    """``Generic[T]`` 表示分页项类型可复用，如 ``PageResult[Requirement]``。"""
     items: list[T]
     total: int = Field(ge=0)
     page: int = Field(ge=0)

@@ -1,4 +1,4 @@
-"""Async HTTP client for the Java requirement query API."""
+"""Java 需求查询 API 的异步 HTTP Client。"""
 
 from __future__ import annotations
 
@@ -19,7 +19,11 @@ from app.schemas.requirement import (
 
 
 class RequirementClient:
-    """A replaceable, read-only client for the Java backend requirement endpoints."""
+    """可替换的 Java 后端 Client。
+
+构造器允许注入 ``httpx.AsyncClient``：生产环境默认自行创建，测试则注入
+``MockTransport``，因此测试不会产生真实网络请求。
+"""
 
     def __init__(
         self,
@@ -31,6 +35,7 @@ class RequirementClient:
         self._owns_client = client is None
 
     async def close(self) -> None:
+        """仅关闭由本类创建的 Client，避免误关闭调用方注入的共享 Client。"""
         if self._owns_client:
             await self._client.aclose()
 
@@ -63,6 +68,7 @@ class RequirementClient:
         trace_id: str | None = None,
     ) -> dict[str, Any]:
         headers = {"X-Trace-Id": trace_id} if trace_id else None
+        # ``await`` 表示等待异步 I/O 完成，不会像同步网络调用那样阻塞整个事件循环。
         try:
             response = await self._client.get(
                 f"{self._base_url}{path}", params=params, headers=headers
@@ -99,6 +105,7 @@ class RequirementClient:
         raise BackendBusinessError(envelope.code, envelope.message, envelope.trace_id, status_code)
 
     def _validate_data(self, payload: dict[str, Any], model: type[Any]) -> Any:
+        """二次校验 data 字段，防止后端响应缺字段后流入 Agent。"""
         try:
             return model.model_validate(payload["data"])
         except (KeyError, ValidationError) as error:

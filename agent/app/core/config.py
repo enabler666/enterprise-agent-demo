@@ -1,4 +1,4 @@
-"""Application configuration loaded from environment variables."""
+"""应用配置：在运行时从环境变量读取，不把密钥写入源码。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,11 @@ from pydantic import BaseModel, Field, HttpUrl, SecretStr
 
 
 class Settings(BaseModel):
-    """Runtime settings; secrets are intentionally represented as ``SecretStr``."""
+    """运行配置。
+
+``BaseModel`` 提供 Pydantic 的类型转换与校验；``SecretStr`` 在日志或 repr 中会脱敏，
+避免 DeepSeek Key 被意外打印。
+"""
 
     deepseek_api_key: SecretStr | None = Field(default=None, repr=False)
     deepseek_base_url: HttpUrl = "https://api.deepseek.com"
@@ -18,7 +22,10 @@ class Settings(BaseModel):
 
     @classmethod
     def from_environment(cls) -> Settings:
-        """Create settings without logging or exposing the API key."""
+        """显式读取环境变量。
+
+不在模块导入时创建全局 Settings，测试可通过 ``monkeypatch`` 改写环境变量后再创建实例。
+"""
         api_key = os.getenv("DEEPSEEK_API_KEY")
         return cls(
             deepseek_api_key=SecretStr(api_key) if api_key else None,

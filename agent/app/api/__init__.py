@@ -1,1 +1,1 @@
-"""HTTP API routes."""
+"""FastAPI 路由包；阶段 7 才会在此加入聊天接口。"""

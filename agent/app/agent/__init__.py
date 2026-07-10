@@ -1,1 +1,1 @@
-"""Agent workflow package reserved for later stages."""
+"""LangGraph 工作流包；阶段 6 会在此实现状态和节点。"""

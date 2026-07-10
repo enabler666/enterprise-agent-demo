@@ -1,4 +1,4 @@
-"""Read-only requirement query tools for the later Agent workflow."""
+"""供后续 Agent 工作流调用的只读需求查询工具。"""
 
 from __future__ import annotations
 
@@ -16,6 +16,10 @@ from app.tools.result import ToolExecutionResult
 
 
 class RequirementBackend(Protocol):
+    """Client 的最小能力约定。
+
+``Protocol`` 是结构化接口：测试替身只要实现相同方法即可，无需继承真实 Client。
+"""
     async def get_requirement_by_no(
         self, requirement_no: str, trace_id: str | None = None
     ) -> Requirement: ...
@@ -30,6 +34,7 @@ class RequirementBackend(Protocol):
 
 
 class RequirementNoInput(BaseModel):
+    """需求编号工具输入；模型创建失败会被转换为统一工具错误。"""
     requirement_no: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
 
     @field_validator("requirement_no", mode="before")
@@ -43,7 +48,11 @@ class SearchRequirementsInput(RequirementQuery):
 
 
 class RequirementTools:
-    """Tools that only read business data through the Java backend client."""
+    """只经 Java Client 读取业务数据的工具集合。
+
+工具接收 ``object`` 类型 payload 后立即用 Pydantic 校验，这使后续 LLM 工具调用传入的
+JSON 字典也能安全处理。
+"""
 
     def __init__(self, backend: RequirementBackend) -> None:
         self._backend = backend
@@ -122,6 +131,7 @@ class RequirementTools:
         return ToolExecutionResult.success(progress)
 
     def _map_business_error(self, error: BackendBusinessError) -> ToolExecutionResult[Any]:
+        """将后端业务码转为 Agent 可消费、且不泄露实现细节的统一结果。"""
         if error.code == "REQUIREMENT_NOT_FOUND":
             return ToolExecutionResult.no_result(
                 message="未找到指定需求", code=error.code, trace_id=error.trace_id

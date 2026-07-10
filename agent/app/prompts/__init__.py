@@ -1,1 +1,1 @@
-"""Agent prompts package reserved for later stages."""
+"""提示词包；阶段 6 会在此集中维护 Agent 系统提示词。"""

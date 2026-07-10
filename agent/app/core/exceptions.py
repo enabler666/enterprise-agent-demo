@@ -1,4 +1,7 @@
-"""Typed exceptions for backend HTTP integration."""
+"""Java 后端调用的异常分类。
+
+工具层依异常类型转换为对用户安全的结果，不将 HTTP/连接细节直接暴露给最终用户。
+"""
 
 from __future__ import annotations
 
