@@ -11,7 +11,7 @@
         <relativePath/>
     </parent>
 
-    <groupId>com.example.enterprise.support</groupId>
+    <groupId>com.enabler</groupId>
     <artifactId>enterprise-support-backend</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>enterprise-support-backend</name>

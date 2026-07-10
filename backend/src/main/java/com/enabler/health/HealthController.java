@@ -1,4 +1,4 @@
-package com.example.enterprise.support.health;
+package com.enabler.health;
 
 import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;

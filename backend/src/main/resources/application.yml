@@ -1,6 +1,12 @@
 spring:
   application:
     name: enterprise-support-backend
+  profiles:
+    default: local
+
+logging:
+  pattern:
+    level: "%5p [traceId=%X{traceId:-}]"
 
 server:
   port: 8080

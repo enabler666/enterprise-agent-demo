@@ -1,4 +1,4 @@
-package com.example.enterprise.support.health;
+package com.enabler.health;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

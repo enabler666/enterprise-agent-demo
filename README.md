@@ -5,14 +5,14 @@
 ## 目录
 
 - `backend/`：JDK 25 + Spring Boot 4 Java 服务
-- `agent/`：Python 3.13 + FastAPI 服务
+- `agent/`：Python 3.14 + FastAPI 服务
 - `docs/`：架构与接口文档（后续阶段补充）
 - `docker/`：容器配置（后续阶段补充）
 
 ## 环境要求
 
 - JDK 25
-- Python 3.13
+- Python 3.14
 - uv
 
 ## 验证

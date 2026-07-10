@@ -1,4 +1,4 @@
-package com.example.enterprise.support;
+package com.enabler;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
