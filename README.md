@@ -29,3 +29,8 @@ cd agent && uv run uvicorn app.main:app --reload --port 8000
 ```
 
 健康检查分别位于 `GET http://localhost:8080/health` 和 `GET http://localhost:8000/health`。
+
+## 文档
+
+- [Java 后端说明](backend/README.md)
+- [需求查询 API](docs/requirement-api.md)
