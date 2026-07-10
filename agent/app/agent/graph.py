@@ -1,0 +1,101 @@
+"""需求查询 LangGraph 主流程。"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Literal
+
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.runnables import Runnable
+from langgraph.graph import END, START, StateGraph
+
+from app.agent.state import RequirementAgentState
+from app.agent.tool_schemas import requirement_tool_schemas
+from app.core.config import Settings
+from app.prompts.requirement_agent import REQUIREMENT_AGENT_SYSTEM_PROMPT
+from app.tools.requirement_tools import RequirementTools
+from app.tools.result import ToolExecutionResult
+
+
+@dataclass(frozen=True)
+class AgentRunResult:
+    """一次 Agent 执行结果；``history`` 可作为下一轮输入继续对话。"""
+
+    answer: str
+    history: list[BaseMessage]
+
+
+class RequirementAgent:
+    """由“模型判断 → 执行工具 → 模型回答”组成的只读工作流。"""
+
+    def __init__(self, model: Runnable[Any, BaseMessage], tools: RequirementTools) -> None:
+        self._model = model
+        self._tools = tools
+        builder = StateGraph(RequirementAgentState)
+        builder.add_node("model", self._call_model)
+        builder.add_node("tools", self._execute_tools)
+        builder.add_edge(START, "model")
+        builder.add_conditional_edges("model", self._route_after_model, {"tools": "tools", "end": END})
+        builder.add_edge("tools", "model")
+        # LangGraph 必须 compile 后才可调用；编译会检查孤立节点和边连接。
+        self._graph = builder.compile()
+
+    async def ask(
+        self, user_message: str, history: list[BaseMessage] | None = None
+    ) -> AgentRunResult:
+        """执行一轮对话；调用方负责按 session 保存返回的 history。"""
+        initial_messages = [*(history or []), HumanMessage(content=user_message)]
+        state = await self._graph.ainvoke({"messages": initial_messages, "tool_rounds": 0})
+        messages = list(state["messages"])
+        last_message = messages[-1]
+        answer = last_message.text if isinstance(last_message, AIMessage) else ""
+        if not answer:
+            answer = "暂时无法完成本次需求查询，请补充条件或稍后重试。"
+        return AgentRunResult(answer=answer, history=messages)
+
+    async def _call_model(self, state: RequirementAgentState) -> dict[str, Any]:
+        messages = [SystemMessage(content=REQUIREMENT_AGENT_SYSTEM_PROMPT), *state["messages"]]
+        response = await self._model.ainvoke(messages)
+        return {"messages": [response]}
+
+    def _route_after_model(self, state: RequirementAgentState) -> Literal["tools", "end"]:
+        last_message = state["messages"][-1]
+        if (
+            isinstance(last_message, AIMessage)
+            and last_message.tool_calls
+            and state.get("tool_rounds", 0) < 3
+        ):
+            return "tools"
+        return "end"
+
+    async def _execute_tools(self, state: RequirementAgentState) -> dict[str, Any]:
+        last_message = state["messages"][-1]
+        if not isinstance(last_message, AIMessage):
+            return {"messages": [], "tool_rounds": state.get("tool_rounds", 0)}
+
+        messages: list[ToolMessage] = []
+        for tool_call in last_message.tool_calls:
+            result = await self._dispatch_tool(tool_call["name"], tool_call["args"])
+            messages.append(
+                ToolMessage(content=result.model_dump_json(), tool_call_id=tool_call["id"])
+            )
+        return {"messages": messages, "tool_rounds": state.get("tool_rounds", 0) + 1}
+
+    async def _dispatch_tool(self, name: str, arguments: object) -> ToolExecutionResult[Any]:
+        if name == "get_requirement_by_no":
+            return await self._tools.get_requirement_by_no(arguments)
+        if name == "search_requirements":
+            return await self._tools.search_requirements(arguments)
+        if name == "get_requirement_progress":
+            return await self._tools.get_requirement_progress(arguments)
+        return ToolExecutionResult.failure(code="UNKNOWN_TOOL", message="不支持的查询操作")
+
+
+def build_requirement_agent(settings: Settings, tools: RequirementTools) -> RequirementAgent:
+    """生产环境工厂：创建 DeepSeek 模型并绑定三个只读工具 Schema。"""
+    # 延迟导入避免仅启动健康检查时就初始化模型依赖或校验 API Key。
+    from app.agent.model import create_deepseek_chat_model
+
+    model = create_deepseek_chat_model(settings)
+    model_with_tools = model.bind_tools(requirement_tool_schemas())
+    return RequirementAgent(model_with_tools, tools)

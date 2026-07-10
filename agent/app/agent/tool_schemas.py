@@ -1,0 +1,62 @@
+"""暴露给模型的只读工具 JSON Schema。"""
+
+from typing import Any
+
+
+def requirement_tool_schemas() -> list[dict[str, Any]]:
+    """只描述模型可调用的参数，不包含 Java URL 等实现细节。"""
+    requirement_no = {
+        "type": "object",
+        "properties": {
+            "requirement_no": {"type": "string", "description": "需求编号，例如 XQ202607001"}
+        },
+        "required": ["requirement_no"],
+        "additionalProperties": False,
+    }
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_requirement_by_no",
+                "description": "根据明确的需求编号查询需求详情",
+                "parameters": requirement_no,
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "search_requirements",
+                "description": "按标题、申请人、部门、状态、创建时间等条件组合查询需求",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "requirement_no": {"type": "string"},
+                        "title": {"type": "string"},
+                        "applicant_id": {"type": "string"},
+                        "applicant_name": {"type": "string"},
+                        "department": {"type": "string"},
+                        "status": {
+                            "type": "string",
+                            "enum": [
+                                "DRAFT", "PENDING_APPROVAL", "APPROVED", "REJECTED",
+                                "EXECUTING", "COMPLETED", "CANCELLED"
+                            ],
+                        },
+                        "created_from": {"type": "string", "format": "date-time"},
+                        "created_to": {"type": "string", "format": "date-time"},
+                        "page": {"type": "integer", "minimum": 0, "default": 0},
+                        "size": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
+                    },
+                    "additionalProperties": False,
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_requirement_progress",
+                "description": "根据需求编号查询当前状态、处理节点和预计完成日期",
+                "parameters": requirement_no,
+            },
+        },
+    ]

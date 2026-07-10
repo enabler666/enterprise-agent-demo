@@ -36,13 +36,13 @@
 
 | 阶段 | 目标 | 状态 | 建议提交信息 |
 | --- | --- | --- | --- |
-| 1 | Monorepo、Java/Python 骨架、健康检查 | 已完成 | `chore: initialize monorepo project skeleton` |
-| 2 | 需求领域模型、内存 Repository、三个查询 API | 已完成 | `feat: add in-memory requirement query api` |
-| 3 | MyBatis-Plus、MySQL Profile、Flyway、Docker Compose、Testcontainers | 已完成 | `feat: add mysql requirement repository` |
-| 4 | Python 配置、Pydantic 模型、Java RequirementClient | 已完成 | `feat: add requirement backend client` |
-| 5 | 需求查询 Agent 工具 | 已完成 | `feat: add requirement query tools` |
-| 6 | DeepSeek 与 LangGraph Agent | 待开始 | `feat: add deepseek requirement agent` |
-| 7 | FastAPI 聊天接口与端到端联调 | 待开始 | `feat: expose requirement agent chat api` |
+| 1 | Monorepo、Java/Python 骨架、健康检查 | 已完成 | `chore: 初始化 Monorepo 项目骨架` |
+| 2 | 需求领域模型、内存 Repository、三个查询 API | 已完成 | `feat: 添加内存需求查询接口` |
+| 3 | MyBatis-Plus、MySQL Profile、Flyway、Docker Compose、Testcontainers | 已完成 | `feat: 添加 MySQL 需求仓储实现` |
+| 4 | Python 配置、Pydantic 模型、Java RequirementClient | 已完成 | `feat: 添加需求后端 Client` |
+| 5 | 需求查询 Agent 工具 | 已完成 | `feat: 添加需求查询工具` |
+| 6 | DeepSeek 与 LangGraph Agent | 已完成 | `feat: 添加 DeepSeek 需求查询 Agent` |
+| 7 | FastAPI 聊天接口与端到端联调 | 待开始 | `feat: 开放需求 Agent 聊天接口` |
 
 ## 已完成阶段的验收记录
 
@@ -79,11 +79,11 @@
 - 输入参数使用 Pydantic 校验；后端异常不暴露 URL、堆栈或连接详情。
 - mock 测试覆盖成功、无结果、参数错误、需求不存在和后端不可用。
 
-## 下一阶段：阶段 6
+## 下一阶段：阶段 7
 
-目标是接入 DeepSeek OpenAI-compatible API 并建立 LangGraph Agent 流程，使用阶段 5 工具完成意图判断、查询和回答生成。
+目标是提供 FastAPI `/chat`，接入 session 上下文并完成 Agent → Java 的端到端联调。
 
-阶段 6 验收前的 Python 验证命令：
+阶段 7 验收前的 Python 验证命令：
 
 ```bash
 cd agent

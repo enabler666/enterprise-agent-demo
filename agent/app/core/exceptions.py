@@ -27,3 +27,7 @@ class BackendBusinessError(RequirementClientError):
         self.message = message
         self.trace_id = trace_id
         self.status_code = status_code
+
+
+class AgentConfigurationError(Exception):
+    """Agent 运行所需配置缺失，例如没有设置 DeepSeek API Key。"""

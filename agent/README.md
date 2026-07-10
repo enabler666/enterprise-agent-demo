@@ -1,6 +1,6 @@
 # Enterprise Support Agent Service
 
-当前完成到阶段 5：提供 FastAPI 健康检查、异步 Java `RequirementClient` 和只读需求查询工具。尚未实现 LLM、LangGraph 主流程或聊天接口。
+当前完成到阶段 6：提供 FastAPI 健康检查、异步 Java `RequirementClient`、只读查询工具，以及 DeepSeek + LangGraph 需求 Agent。尚未暴露聊天接口。
 
 ```bash
 uv sync
@@ -44,6 +44,22 @@ Client 使用 `httpx.AsyncClient`，支持依赖注入和 `MockTransport` 测试
 | `ERROR` | 参数不合法或后端不可用/协议异常 |
 
 工具不会访问数据库，也不暴露 Java URL、内部堆栈或连接错误细节。
+
+## DeepSeek 与 LangGraph
+
+`RequirementAgent` 使用以下流程：
+
+```text
+用户消息 → DeepSeek 判断 → 可选查询工具 → DeepSeek 生成最终中文回答
+```
+
+- `RequirementAgentState` 使用 LangGraph 消息 reducer 保存上下文。
+- 调用方将上一轮返回的 `history` 传入下一轮，即可实现基础多轮对话。
+- 模型最多连续执行三轮工具调用，避免异常循环。
+- 缺少 `DEEPSEEK_API_KEY` 时，健康检查仍可用；只有创建/调用 Agent 时返回配置错误。
+- 自动化测试使用 Fake ChatModel，不调用真实 DeepSeek API。
+
+当前默认模型仍为 `deepseek-chat`，可通过 `DEEPSEEK_MODEL` 替换。DeepSeek 官方已提示该别名将在 2026-07-24 弃用，部署时应按账号可用模型更新环境变量。
 
 测试与静态检查：
 
