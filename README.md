@@ -1,13 +1,13 @@
 # Enterprise Support Agent
 
-企业需求与合同履约智能客服平台的 Monorepo。当前仅包含阶段 1 项目骨架和健康检查，不包含需求业务。
+企业需求与合同履约智能客服平台的 Monorepo。当前 Java 后端支持需求只读查询，以及内存/MySQL 两种数据模式。
 
 ## 目录
 
 - `backend/`：JDK 25 + Spring Boot 4 Java 服务
 - `agent/`：Python 3.14 + FastAPI 服务
-- `docs/`：架构与接口文档（后续阶段补充）
-- `docker/`：容器配置（后续阶段补充）
+- `docs/`：接口与架构文档
+- `docker/`：MySQL 容器配置
 
 ## 环境要求
 

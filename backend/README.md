@@ -2,13 +2,17 @@
 
 企业需求与合同履约智能客服平台的 Java 业务后端。
 
-当前完成到阶段 2，只提供需求查询能力。默认使用内存数据运行，不需要安装或启动 MySQL。
+当前完成到阶段 3，只提供需求查询能力。默认使用内存数据运行；也可以通过 `mysql` Profile 切换到 MyBatis-Plus 和 MySQL。
 
 ## 技术环境
 
 - JDK 25
 - Spring Boot 4.1.0
 - Maven 3.9.11（通过 Maven Wrapper 使用）
+- MyBatis-Plus 3.5.16
+- Flyway
+- MySQL 8.4
+- Testcontainers 2.0.5
 - JUnit 5
 
 编译目标明确设置为 Java 25。
@@ -49,7 +53,7 @@ curl -sS "http://localhost:8080/health"
 }
 ```
 
-## 运行模式
+## 默认内存模式
 
 默认 Profile 为 `local`：
 
@@ -73,11 +77,61 @@ InMemoryRequirementRepository
 
 Service 只依赖 `RequirementRepository` 抽象，不包含内存和数据库实现之间的判断逻辑。
 
-`mysql` Profile 及 MyBatis-Plus Repository 将在阶段 3 实现，当前不要使用：
+## MySQL 模式
+
+MySQL 模式使用：
+
+- `MyBatisRequirementRepository`
+- MyBatis-Plus Mapper 和数据库分页
+- Flyway 初始化表结构及 12 条演示数据
+- MySQL 环境变量配置
+
+从仓库根目录启动 MySQL：
+
+```bash
+docker compose up -d mysql
+```
+
+默认开发配置为：
 
 ```text
---spring.profiles.active=mysql
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_DATABASE=enterprise_support
+MYSQL_USERNAME=enterprise_support
+MYSQL_PASSWORD=change-me
 ```
+
+可以复制根目录 `.env.example` 为 `.env` 并修改本地配置。不要提交包含真实密码的 `.env`。
+
+启动 MySQL Profile：
+
+Windows PowerShell：
+
+```powershell
+$env:SPRING_PROFILES_ACTIVE = "mysql"
+./mvnw.cmd spring-boot:run
+```
+
+Linux 或 macOS：
+
+```bash
+SPRING_PROFILES_ACTIVE=mysql ./mvnw spring-boot:run
+```
+
+也可以显式传递 Profile：
+
+```text
+./mvnw spring-boot:run -Dspring-boot.run.profiles=mysql
+```
+
+首次启动时 Flyway 会自动执行：
+
+```text
+src/main/resources/db/migration/V1__create_requirements.sql
+```
+
+`local` 与 `mysql` Profile 通过 Spring Bean/Profile 切换 Repository，Controller 和 Service 不需要感知具体数据来源。
 
 ## 需求查询接口
 
@@ -157,6 +211,11 @@ Linux 或 macOS：
 - 统一成功和错误响应
 - traceId 透传
 - 分页及状态参数校验
+- MySQL Profile 的 Repository 切换
+- Flyway 表结构和演示数据初始化
+- MyBatis-Plus 数据库过滤与分页
+
+MySQL 集成测试使用 Testcontainers。如果本机没有可用 Docker，相关测试会标记为跳过，其他测试仍会执行。要完整运行集成测试，请先启动 Docker Desktop 或兼容的 Docker Engine。
 
 ## 代码结构
 
@@ -173,6 +232,7 @@ src/main/java/com/enabler/
     ├── api/
     ├── domain/
     ├── exception/
+    ├── infrastructure/mybatis/
     ├── repository/
     └── service/
 ```
@@ -182,6 +242,8 @@ src/main/java/com/enabler/
 - `api`：Controller、请求对象和响应 DTO
 - `domain`：领域模型、查询条件和状态枚举
 - `repository`：数据访问抽象及内存实现
+- `infrastructure/mybatis`：MyBatis-Plus Entity、Mapper 和分页配置
+- `repository`：Repository 抽象、内存实现和 MySQL 实现
 - `service`：查询业务编排和 DTO 转换
 - `common`：统一响应、异常处理和 traceId
 
@@ -204,12 +266,23 @@ XQ202606001
 XQ202605001
 ```
 
+## 数据库文件
+
+```text
+backend/src/main/resources/
+├── application-local.yml
+├── application-mysql.yml
+└── db/migration/
+    └── V1__create_requirements.sql
+
+docker/mysql/conf.d/
+└── charset.cnf
+```
+
 ## 当前边界
 
 当前不包含：
 
-- MyBatis-Plus 和 MySQL 实现
-- Flyway 数据库迁移
 - 创建、修改、审批或删除需求
 - 合同、订单和履约模块
 - 登录认证
