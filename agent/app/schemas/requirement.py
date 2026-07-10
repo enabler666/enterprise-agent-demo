@@ -6,7 +6,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from typing import Generic, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.alias_generators import to_camel
 
 
@@ -74,6 +74,12 @@ class RequirementQuery(JavaApiModel):
     def as_query_params(self) -> dict[str, str | int]:
         values = self.model_dump(exclude_none=True, mode="json", by_alias=True)
         return {key: value for key, value in values.items() if value != ""}
+
+    @model_validator(mode="after")
+    def validate_created_range(self) -> RequirementQuery:
+        if self.created_from and self.created_to and self.created_from > self.created_to:
+            raise ValueError("created_from must not be after created_to")
+        return self
 
 
 T = TypeVar("T")

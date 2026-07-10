@@ -40,7 +40,7 @@
 | 2 | 需求领域模型、内存 Repository、三个查询 API | 已完成 | `feat: add in-memory requirement query api` |
 | 3 | MyBatis-Plus、MySQL Profile、Flyway、Docker Compose、Testcontainers | 已完成 | `feat: add mysql requirement repository` |
 | 4 | Python 配置、Pydantic 模型、Java RequirementClient | 已完成 | `feat: add requirement backend client` |
-| 5 | 需求查询 Agent 工具 | 待开始 | `feat: add requirement query tools` |
+| 5 | 需求查询 Agent 工具 | 已完成 | `feat: add requirement query tools` |
 | 6 | DeepSeek 与 LangGraph Agent | 待开始 | `feat: add deepseek requirement agent` |
 | 7 | FastAPI 聊天接口与端到端联调 | 待开始 | `feat: expose requirement agent chat api` |
 
@@ -72,28 +72,18 @@
 - Java camelCase 与 Python snake_case 自动转换。
 - `uv.lock` 应在 Python 环境中执行 `uv lock` 后更新。
 
-## 下一阶段：阶段 5
+### 阶段 5
 
-目标是将 Python Client 封装为可被后续 Agent 调用的只读工具，但暂不引入 LangGraph 主流程或 LLM。
+- `ToolExecutionResult` 区分成功、无结果和失败。
+- 三个查询工具只调用 `RequirementClient`，不直接访问数据库。
+- 输入参数使用 Pydantic 校验；后端异常不暴露 URL、堆栈或连接详情。
+- mock 测试覆盖成功、无结果、参数错误、需求不存在和后端不可用。
 
-计划内容：
+## 下一阶段：阶段 6
 
-1. 定义统一 `ToolExecutionResult`，区分成功、无结果与失败。
-2. 实现三个工具：
-   - `get_requirement_by_no`
-   - `search_requirements`
-   - `get_requirement_progress`
-3. 使用 Pydantic 对工具输入进行校验。
-4. 将 Java 业务异常映射为工具层可消费的结果，且不暴露内部 URL、工具实现或堆栈。
-5. 编写成功、无结果、参数错误和后端失败的 mock 测试。
-6. 不添加 LangGraph 节点、DeepSeek 调用、聊天路由或写操作。
+目标是接入 DeepSeek OpenAI-compatible API 并建立 LangGraph Agent 流程，使用阶段 5 工具完成意图判断、查询和回答生成。
 
-验收标准：
-
-- 工具只调用 `RequirementClient`，不直接访问数据库。
-- 工具返回结果结构一致，供阶段 6 Agent 流程复用。
-- 单元测试不调用真实 Java 或 DeepSeek 服务。
-- Python 环境验证命令：
+阶段 6 验收前的 Python 验证命令：
 
 ```bash
 cd agent
