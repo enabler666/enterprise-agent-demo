@@ -32,6 +32,8 @@ class RequirementAgent:
         self._model = model
         self._tools = tools
         builder = StateGraph(RequirementAgentState)
+        # 节点只交换 State 的增量：messages 由 State 中的 reducer 追加，tool_rounds 用于限制
+        # “模型请求工具 → 工具结果回注模型”的循环次数，避免异常模型响应造成无限调用。
         builder.add_node("model", self._call_model)
         builder.add_node("tools", self._execute_tools)
         builder.add_edge(START, "model")
@@ -59,6 +61,7 @@ class RequirementAgent:
         return {"messages": [response]}
 
     def _route_after_model(self, state: RequirementAgentState) -> Literal["tools", "end"]:
+        # 仅 AIMessage 中的标准 tool_calls 才进入工具节点；没有工具调用时，该消息就是最终回答。
         last_message = state["messages"][-1]
         if (
             isinstance(last_message, AIMessage)
@@ -75,6 +78,8 @@ class RequirementAgent:
 
         messages: list[ToolMessage] = []
         for tool_call in last_message.tool_calls:
+            # LangChain 已按绑定的 JSON Schema 生成 name/args；ToolMessage 必须带回相同 id，
+            # 以便下一次模型调用能将结果关联到原始工具调用。
             result = await self._dispatch_tool(tool_call["name"], tool_call["args"])
             messages.append(
                 ToolMessage(content=result.model_dump_json(), tool_call_id=tool_call["id"])

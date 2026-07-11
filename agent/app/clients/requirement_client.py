@@ -69,6 +69,7 @@ class RequirementClient:
     ) -> dict[str, Any]:
         headers = {"X-Trace-Id": trace_id} if trace_id else None
         # ``await`` 表示等待异步 I/O 完成，不会像同步网络调用那样阻塞整个事件循环。
+        # Client 只传递调用方已有的追踪号；未提供时交由 Java TraceIdFilter 生成并回写响应。
         try:
             response = await self._client.get(
                 f"{self._base_url}{path}", params=params, headers=headers
@@ -82,6 +83,7 @@ class RequirementClient:
             raise BackendProtocolError("需求查询服务返回了非 JSON 响应") from error
 
         if not response.is_success:
+            # 即使 HTTP 是 4xx/5xx，也要求后端返回 ApiResponse，才能保留业务码和 traceId。
             self._raise_backend_error(raw_payload, response.status_code)
 
         try:

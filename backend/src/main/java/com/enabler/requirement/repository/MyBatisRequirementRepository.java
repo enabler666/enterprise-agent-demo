@@ -15,6 +15,8 @@ import org.springframework.stereotype.Repository;
 @Profile("mysql")
 public class MyBatisRequirementRepository implements RequirementRepository {
 
+    // 激活 mysql Profile 后 Spring 改为注入此实现；查询语义仍由 RequirementRepository 约束。
+
     private final RequirementMapper mapper;
 
     public MyBatisRequirementRepository(RequirementMapper mapper) {

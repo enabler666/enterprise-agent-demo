@@ -25,6 +25,8 @@ public class RequirementService {
     }
 
     public PageResult<RequirementDto> search(RequirementQueryRequest request) {
+        // Controller 的 HTTP 入参在此转换为领域查询对象；Service 只依赖仓储抽象，
+        // 不感知 local 内存数据还是 mysql/MyBatis 的具体实现。
         validateTimeRange(request);
         RequirementQuery query = new RequirementQuery(
                 request.requirementNo(), request.title(), request.applicantId(),

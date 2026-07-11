@@ -18,6 +18,8 @@ import org.springframework.stereotype.Repository;
 @Profile("!mysql")
 public class InMemoryRequirementRepository implements RequirementRepository {
 
+    // 未激活 mysql Profile 时注入此实现，保证本地运行不需要数据库；接口保持不变。
+
     private static final ZoneOffset ZONE = ZoneOffset.ofHours(8);
     private final List<Requirement> requirements = createRequirements();
 

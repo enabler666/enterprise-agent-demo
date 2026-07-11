@@ -23,6 +23,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusinessException(
             BusinessException exception, HttpServletRequest request) {
+        // 业务异常映射为稳定的 ApiResponse；Python Client 据此区分“无结果”和协议/网络故障。
         String traceId = TraceIdFilter.from(request);
         log.warn("Business exception, traceId={}, code={}, message={}",
                 traceId, exception.getCode(), exception.getMessage());
