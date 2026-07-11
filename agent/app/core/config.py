@@ -16,7 +16,7 @@ class Settings(BaseModel):
 
     deepseek_api_key: SecretStr | None = Field(default=None, repr=False)
     deepseek_base_url: HttpUrl = "https://api.deepseek.com"
-    deepseek_model: str = "deepseek-chat"
+    deepseek_model: str = "deepseek-v4-flash"
     backend_base_url: HttpUrl = "http://localhost:8080"
     backend_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
 
