@@ -1,6 +1,6 @@
 # Enterprise Support Agent Service
 
-当前完成到阶段 6：提供 FastAPI 健康检查、异步 Java `RequirementClient`、只读查询工具，以及 DeepSeek + LangGraph 需求 Agent。尚未暴露聊天接口。
+当前已完成阶段 7：提供 FastAPI 聊天接口、异步 Java `RequirementClient`、只读查询工具，以及 DeepSeek + LangGraph 需求 Agent。
 
 ```bash
 uv sync
@@ -87,6 +87,60 @@ curl -sS -X POST "http://localhost:8000/chat" \
 ```
 
 缺少 `DEEPSEEK_API_KEY` 时，`/chat` 返回 `503 Service Unavailable` 和明确配置错误；`/health` 不受影响。
+
+## 本地端到端验证
+
+最终效果需要同时启动 Java 后端和 Python Agent；默认 Java 后端使用内存数据，不需要 MySQL。
+
+1. 在一个终端启动 Java 后端：
+
+   ```powershell
+   cd backend
+   .\mvnw.cmd spring-boot:run
+   ```
+
+2. 在另一个终端启动 Agent，并设置 DeepSeek API Key：
+
+   ```powershell
+   cd agent
+   $env:DEEPSEEK_API_KEY="你的 DeepSeek API Key"
+   $env:BACKEND_BASE_URL="http://localhost:8080"
+   uv run uvicorn app.main:app --reload --port 8000
+   ```
+
+3. 使用以下命令分别验证两个服务、Java 业务数据和最终聊天效果：
+
+   ```powershell
+   # Java 后端与 Python Agent 健康检查
+   curl.exe -sS http://localhost:8080/health
+   curl.exe -sS http://localhost:8000/health
+
+   # Java 后端的示例需求数据
+   curl.exe -sS http://localhost:8080/api/requirements/XQ202607002/progress
+
+   # Agent → DeepSeek → Java 后端；单行命令可用于 PowerShell、Bash 和 CMD
+   curl.exe -sS -X POST "http://localhost:8000/chat" -H "Content-Type: application/json; charset=utf-8" -d '{"userId":"demo-user","sessionId":"demo-session","message":"XQ202607002 \u76ee\u524d\u8fdb\u5c55\u600e\u4e48\u6837\uff1f"}'
+   ```
+
+Windows PowerShell 将中文直接传给 `curl.exe` 时，可能使用本地代码页编码，导致服务端无法按 UTF-8 解析请求体。上例使用 JSON Unicode 转义以确保兼容性。命令已保持单行，不依赖 PowerShell 的反引号、Bash 的反斜杠或 CMD 的脱字符续行。若希望直接输入中文，使用 PowerShell 的 `Invoke-RestMethod` 并显式传入 UTF-8 字节：
+
+```powershell
+$body = @{
+  userId = "demo-user"
+  sessionId = "demo-session"
+  message = "XQ202607002 目前进展怎么样？"
+} | ConvertTo-Json -Compress
+
+$bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://localhost:8000/chat" `
+  -ContentType "application/json; charset=utf-8" `
+  -Body $bytes
+```
+
+同一组 `userId` 与 `sessionId` 会保留最近 20 条对话上下文；服务重启后会清空。也可以访问 `http://localhost:8000/docs` 在 Swagger 页面调试 `/chat`。
 
 测试与静态检查：
 
