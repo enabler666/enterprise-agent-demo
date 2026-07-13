@@ -1,0 +1,79 @@
+# 开发迭代记录
+
+本文是项目开发路径和迭代状态的唯一记录。阶段按开发顺序持续追加，既记录每次迭代增加的功能，也标明接下来正在开发什么。
+
+## 追加规则
+
+- 新阶段只能追加在文件末尾，不重排或覆盖既有阶段。
+- 当维护者明确表示“接下来开发某项能力”时，Agent 自动追加下一个阶段，写明阶段标题、`状态：进行中` 和本阶段目标。
+- 开发过程中只更新当前阶段，不提前添加后续阶段。
+- 阶段实现完成后，将计划性描述替换为实际完成内容，并标记为“待验收”。
+- 维护者确认验证结果后，将状态改为“已完成”，记录必要的验证结果，然后停止并等待下一阶段指令。
+- 每个阶段只记录功能、重要技术能力和验证结论，不复制接口详情、调试过程或文件清单。
+
+## 阶段 1：Monorepo 项目骨架
+
+状态：已完成
+
+- 建立 `backend/`、`agent/`、`docs/` 和 Docker 目录结构。
+- 初始化 Java 25 + Spring Boot 与 Python 3.14 + FastAPI 工程。
+- 为 Java 后端和 Python Agent 增加健康检查。
+- 建立基础测试与本地开发配置。
+
+## 阶段 2：需求只读查询
+
+状态：已完成
+
+- 建立需求领域模型、状态枚举和 Repository 抽象。
+- 增加内存 Repository 与固定演示数据。
+- 提供需求详情、组合分页检索和当前进度三个 Java API。
+- 增加统一响应、traceId、参数校验和全局异常处理。
+
+## 阶段 3：MySQL 数据模式
+
+状态：已完成
+
+- 增加 MyBatis-Plus Repository，实现数据库过滤和分页。
+- 增加 `mysql` Spring Profile，并保持 Controller、Service 接口不变。
+- 使用 Flyway 创建需求表并初始化演示数据。
+- 增加 Docker Compose MySQL 8.4 配置和 Testcontainers 集成测试。
+
+## 阶段 4：Java 后端 Client
+
+状态：已完成
+
+- 建立 Python 配置与需求相关 Pydantic Schema。
+- 使用异步 `httpx` 封装三个 Java 需求查询 API。
+- 支持依赖注入与 `MockTransport`，避免测试访问真实 Java 服务。
+- 支持 Java camelCase 与 Python snake_case 字段转换。
+
+## 阶段 5：需求查询工具
+
+状态：已完成
+
+- 在 `RequirementClient` 之上增加详情、组合检索和进度查询工具。
+- 使用 Pydantic 校验工具输入。
+- 统一成功、无结果和失败三类工具执行结果。
+- 对后端连接、协议和业务错误进行安全转换，不暴露内部细节。
+
+## 阶段 6：DeepSeek 与 LangGraph Agent
+
+状态：已完成
+
+- 接入 OpenAI-compatible DeepSeek ChatModel。
+- 使用 LangGraph 编排模型判断、工具调用和最终回答。
+- 注册三个只读需求查询工具，并限制最多连续三轮工具调用。
+- 增加基础多轮消息上下文和缺少 API Key 时的明确错误。
+- 使用 Fake ChatModel 测试 Agent 流程，不调用真实 DeepSeek。
+
+## 阶段 7：聊天接口与端到端联调
+
+状态：待验收
+
+- 新增 FastAPI `POST /chat` 接口，接收用户、会话和自然语言消息。
+- 新增进程内会话上下文，支持基础多轮对话。
+- 打通 FastAPI → LangGraph Agent → 查询工具 → Java API 的完整链路。
+- 增加聊天接口、ChatService 和端到端 mock 测试。
+- 补充本地启动、联调示例和常见错误说明。
+
+维护者尚未确认阶段 7 的 Python 环境验证结果。确认后将状态改为“已完成”。

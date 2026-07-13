@@ -6,16 +6,18 @@
 
 - `backend/`：Java 25 + Spring Boot 业务后端。源码位于 `src/main/java/com/enabler`，测试位于 `src/test/java`。
 - `agent/`：Python 3.14 + FastAPI Agent 服务。应用代码位于 `app/`，测试位于 `tests/`。
-- `docs/`：接口约定、开发计划和架构说明。
+- `docs/`：接口约定、开发迭代记录和架构说明。
 - `docker/`、`docker-compose.yml`：本地 MySQL 配置。
 
 Java 按 `api`、`domain`、`repository`、`service`、`infrastructure` 分层。Python 的路由、Client、Schema、工具、提示词和 Agent 流程分别放入对应的 `app/` 子包。
 
 ## Agent 执行规则与范围
 
-严格遵循 `docs/development-plan.md`，每次只完成一个阶段。完成后汇报修改文件和验证结果，然后立即停止，等待维护者明确回复继续。当前阶段 1–6 已完成，下一阶段是阶段 7；不得提前实现后续阶段。
+严格遵循 `docs/development-history.md`，每次只完成一个阶段。完成后汇报修改文件和验证结果，然后立即停止，等待维护者明确回复继续。当前阶段 1–6 已完成，阶段 7 待验收；不得提前实现后续阶段。
 
 Codex 只负责代码和文档编辑，不执行 `git status`、暂存、提交、推送等 Git 操作。Git 操作由维护者完成。Python 环境及验证也由维护者执行；依赖变化时，应明确提示执行 `uv lock`、pytest、Ruff 和 mypy，不得声称未运行的检查已经通过。
+
+`docs/development-history.md` 是唯一的开发路径与更新记录。维护者明确表示接下来开发某项能力时，Agent 必须在文件末尾自动追加下一个阶段，标记为“进行中”，然后再开始实现；不得提前追加尚未确认的阶段。实现完成后补充实际变化并标记为“待验收”；维护者确认验证结果后改为“已完成”。该文档不记录调试过程、文件清单或重复的接口细节。
 
 Java 根包固定为 `com.enabler`，Python 固定为 3.14。当前产品范围仅限只读需求查询。除非后续已确认阶段明确要求，不得加入合同、订单、RAG、向量数据库、MCP、多 Agent、认证、工作流引擎、自然语言 SQL 或需求写操作。
 

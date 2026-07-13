@@ -38,7 +38,7 @@ uv run uvicorn app.main:app --reload --port 8000
 - [Python Agent 运行与开发](agent/README.md)
 - [需求查询 API 契约](docs/requirement-api.md)
 - [当前调用链与架构边界](docs/current-flow.md)
-- [开发阶段与验收记录](docs/development-plan.md)
+- [开发路径与迭代记录](docs/development-history.md)
 
 ## 当前边界
 
