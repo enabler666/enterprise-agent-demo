@@ -1,19 +1,13 @@
 # Enterprise Support Agent Service
 
-当前已完成阶段 7：提供 FastAPI 聊天接口、异步 Java `RequirementClient`、只读查询工具，以及 DeepSeek + LangGraph 需求 Agent。
+Python Agent 服务，提供 FastAPI 聊天接口、异步 Java `RequirementClient`、只读查询工具，以及 DeepSeek + LangGraph 编排。本文只说明 Agent 的配置、运行、接口和验证；完整跨模块实现见 [当前调用链](../docs/current-flow.md)。
 
 ```bash
 uv sync
 uv run uvicorn app.main:app --reload --port 8000
 ```
 
-## 后端 Client
-
-`app.clients.RequirementClient` 封装了 Java 后端的三个只读接口：
-
-- `get_requirement_by_no`
-- `search_requirements`
-- `get_requirement_progress`
+## 配置
 
 配置全部来自环境变量：
 
@@ -25,39 +19,7 @@ BACKEND_BASE_URL=http://localhost:8080
 BACKEND_TIMEOUT_SECONDS=10
 ```
 
-Client 使用 `httpx.AsyncClient`，支持依赖注入和 `MockTransport` 测试，不会在模块导入时创建网络连接。Java API 约定见 [需求查询 API](../docs/requirement-api.md)。
-
-## 查询工具
-
-当前还提供 `RequirementTools`，把 Java Client 包装为后续 Agent 可复用的只读工具：
-
-- `get_requirement_by_no`
-- `search_requirements`
-- `get_requirement_progress`
-
-三个工具接收 Pydantic 校验后的输入，并统一返回 `ToolExecutionResult`：
-
-| 状态 | 含义 |
-| --- | --- |
-| `SUCCESS` | 查询成功，`data` 包含结构化结果 |
-| `NO_RESULT` | 没有匹配数据或指定需求不存在 |
-| `ERROR` | 参数不合法或后端不可用/协议异常 |
-
-工具不会访问数据库，也不暴露 Java URL、内部堆栈或连接错误细节。
-
-## DeepSeek 与 LangGraph
-
-`RequirementAgent` 使用以下流程：
-
-```text
-用户消息 → DeepSeek 判断 → 可选查询工具 → DeepSeek 生成最终中文回答
-```
-
-- `RequirementAgentState` 使用 LangGraph 消息 reducer 保存上下文。
-- 调用方将上一轮返回的 `history` 传入下一轮，即可实现基础多轮对话。
-- 模型最多连续执行三轮工具调用，避免异常循环。
-- 缺少 `DEEPSEEK_API_KEY` 时，健康检查仍可用；只有创建/调用 Agent 时返回配置错误。
-- 自动化测试使用 Fake ChatModel，不调用真实 DeepSeek API。
+Agent 只通过 Java API 获取业务数据，不直接访问数据库。Java 接口契约见 [需求查询 API](../docs/requirement-api.md)。缺少 `DEEPSEEK_API_KEY` 时，健康检查仍可用，`/chat` 返回配置错误。
 
 当前默认模型仍为 `deepseek-chat`，可通过 `DEEPSEEK_MODEL` 替换。DeepSeek 官方已提示该别名将在 2026-07-24 弃用，部署时应按账号可用模型更新环境变量。
 
@@ -86,7 +48,7 @@ curl -sS -X POST "http://localhost:8000/chat" \
   -d '{"userId":"user-001","sessionId":"session-001","message":"查询 XQ202607001"}'
 ```
 
-缺少 `DEEPSEEK_API_KEY` 时，`/chat` 返回 `503 Service Unavailable` 和明确配置错误；`/health` 不受影响。
+成功响应包含 Agent 的中文回答。会话与错误处理的实现边界见 [当前调用链](../docs/current-flow.md)。
 
 ## 本地端到端验证
 

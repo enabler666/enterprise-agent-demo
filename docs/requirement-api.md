@@ -1,5 +1,7 @@
 # 需求查询 API
 
+本文是 Java 需求查询接口的权威契约。模块 README 只提供入口，不重复维护参数、响应和错误码。
+
 Java 后端默认地址：`http://localhost:8080`。
 
 当前接口为只读接口，默认使用 `local` Profile 和内存数据，不需要启动 MySQL。

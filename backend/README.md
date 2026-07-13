@@ -1,8 +1,8 @@
 # Enterprise Support Backend
 
-企业需求与合同履约智能客服平台的 Java 业务后端。
+企业需求智能客服的 Java 业务后端。本文只说明后端的运行、数据模式、测试和代码结构；接口细节以 [需求查询 API](../docs/requirement-api.md) 为准。
 
-当前完成到阶段 3，只提供需求查询能力。默认使用内存数据运行；也可以通过 `mysql` Profile 切换到 MyBatis-Plus 和 MySQL。
+当前提供需求只读查询能力。默认使用内存数据运行，也可以通过 `mysql` Profile 切换到 MyBatis-Plus 和 MySQL。
 
 ## 技术环境
 
@@ -133,7 +133,7 @@ src/main/resources/db/migration/V1__create_requirements.sql
 
 `local` 与 `mysql` Profile 通过 Spring Bean/Profile 切换 Repository，Controller 和 Service 不需要感知具体数据来源。
 
-## 需求查询接口
+## 需求查询接口入口
 
 当前提供三个只读接口：
 
@@ -143,50 +143,11 @@ src/main/resources/db/migration/V1__create_requirements.sql
 | `GET` | `/api/requirements` | 组合条件及分页查询 |
 | `GET` | `/api/requirements/{requirementNo}/progress` | 查询当前进度 |
 
-完整参数、响应格式、错误码和 curl 示例见：
+完整参数、响应格式、错误码和 curl 示例统一维护在：
 
 - [需求查询 API](../docs/requirement-api.md)
 
-简单示例：
-
-```bash
-curl -sS \
-  -H "X-Trace-Id: backend-readme-demo" \
-  "http://localhost:8080/api/requirements/XQ202607001"
-```
-
-组合查询：
-
-```bash
-curl -sS --get \
-  "http://localhost:8080/api/requirements" \
-  --data-urlencode "title=服务器" \
-  --data-urlencode "status=EXECUTING" \
-  --data-urlencode "page=0" \
-  --data-urlencode "size=10"
-```
-
-## 统一响应与 traceId
-
-业务接口使用统一响应结构：
-
-```json
-{
-  "success": true,
-  "code": "OK",
-  "message": "查询成功",
-  "data": {},
-  "traceId": "backend-readme-demo"
-}
-```
-
-可以通过 `X-Trace-Id` 请求头传入 traceId。未提供时服务端自动生成。服务端会将 traceId：
-
-- 放入响应体
-- 写入 `X-Trace-Id` 响应头
-- 放入日志上下文
-
-业务异常不会向调用方返回堆栈；未预期异常的堆栈只记录在服务端日志中。
+业务接口支持通过 `X-Trace-Id` 请求头传入链路标识；统一响应、校验规则和错误处理约定也以该 API 文档为准。
 
 ## 编译和测试
 
@@ -247,25 +208,6 @@ src/main/java/com/enabler/
 - `service`：查询业务编排和 DTO 转换
 - `common`：统一响应、异常处理和 traceId
 
-## 当前数据范围
-
-内存数据包含 12 条需求，覆盖：
-
-- 信息技术部、行政部、财务部、研发部等多个部门
-- 多个申请人和需求类型
-- 草稿、审批中、已批准、驳回、执行中、已完成和已取消状态
-- 多条服务器相关需求
-- 2026 年 5 月至 7 月的不同创建时间
-
-示例需求编号：
-
-```text
-XQ202607001
-XQ202607002
-XQ202606001
-XQ202605001
-```
-
 ## 数据库文件
 
 ```text
@@ -286,5 +228,4 @@ docker/mysql/conf.d/
 - 创建、修改、审批或删除需求
 - 合同、订单和履约模块
 - 登录认证
-- Python Agent 调用
 - RAG、MCP 或自然语言 SQL
