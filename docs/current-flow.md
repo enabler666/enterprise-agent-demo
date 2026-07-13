@@ -6,7 +6,7 @@
 
 | 模块 | 职责 | 边界 |
 | --- | --- | --- |
-| `agent/` | 提供 FastAPI `/chat`、维护会话上下文、编排 LangGraph、调用 LLM 工具与 Java HTTP API | 不直连数据库；业务数据只来自 Java API |
+| `agent/` | 提供 FastAPI `/chat` 与 `/chat/stream`、维护会话上下文、编排 LangGraph、调用 LLM 工具与 Java HTTP API | 不直连数据库；业务数据只来自 Java API |
 | `backend/` | 提供需求详情、组合检索和进度查询 API，并按 Controller → Service → Repository 分层 | 当前只读；通过 Profile 在内存和 MySQL 实现间切换 |
 | `docs/` | 接口契约、阶段计划与本调用链说明 | 不承载运行时代码 |
 
@@ -24,6 +24,19 @@
 10. `backend/src/main/java/com/enabler/requirement/api/RequirementController.java` 接收请求，校验路径/查询参数并调用 `RequirementService`。`TraceIdFilter` 从 `X-Trace-Id` 读取或生成 traceId，Controller 将其写入 `ApiResponse.success`。
 11. `RequirementService` 将 `RequirementQueryRequest` 映射为领域 `RequirementQuery`，调用 `RequirementRepository`，再映射为 API DTO：`RequirementDto`、`RequirementProgressDto` 或 `PageResult<RequirementDto>`。
 12. `RequirementRepository` 由 Spring Profile 实现切换：非 `mysql` 使用 `InMemoryRequirementRepository`，`mysql` 使用 `MyBatisRequirementRepository` → `RequirementMapper` → MySQL `requirements` 表。结果按相同抽象返回 Service，再按反方向依次回到工具、模型、`ChatService` 与 `ChatResponse`。
+
+## SSE 流式调用链
+
+`POST /chat/stream` 复用相同的请求、Agent、工具和会话存储。`RequirementAgent.stream`
+使用 LangGraph 的 `messages + updates` 流式模式：`messages` 中仅标准模型文本 chunk
+转换为业务 `message` 事件，reasoning 与 tool-call chunk 不会向外发送；`updates`
+用于生成安全的工具状态并收集最终会话历史。Agent 内部完成事件由 `ChatService` 消费，
+正常完成并保存历史后才产生 `done`。FastAPI 路由只把 `status`、`tool`、`message`、
+`error`、`done` 五种业务事件编码为 SSE，不理解 LangGraph 原始事件。
+
+流开始后的异常通过结构化 `error` 事件返回，因为此时 HTTP 状态码已经不能修改。
+客户端中途断开会取消异步生成器，未完成的本轮历史不会保存。普通 `/chat` 仍使用
+原有一次性响应流程，接口行为不变。
 
 ## LangGraph 结构
 
@@ -47,7 +60,7 @@ flowchart LR
 | `agent/app/main.py` | `create_app` | 创建 FastAPI，保存 ChatService，并在 lifespan 关闭 HTTP 连接池 |
 | `agent/app/api/chat.py` | `chat` | `/chat` 路由和 Agent 配置错误的 503 映射 |
 | `agent/app/agent/service.py` | `ChatService.chat` / `_get_agent` | 连接会话、Agent 与惰性创建的 Java Client |
-| `agent/app/agent/graph.py` | `RequirementAgent.ask` / `_call_model` / `_route_after_model` / `_execute_tools` | LangGraph 的入口、模型节点、条件边和工具节点 |
+| `agent/app/agent/graph.py` | `RequirementAgent.ask` / `stream` / `_call_model` / `_route_after_model` / `_execute_tools` | LangGraph 的普通与流式入口、模型节点、条件边和工具节点 |
 | `agent/app/agent/tool_schemas.py` | `requirement_tool_schemas` | 定义模型可调用的三个函数及参数 JSON Schema |
 | `agent/app/tools/requirement_tools.py` | `RequirementTools` | 校验工具参数、调用 Client、将异常转换为安全结果 |
 | `agent/app/clients/requirement_client.py` | `RequirementClient._get` | 发出 HTTP 请求并校验 Java 统一响应信封 |

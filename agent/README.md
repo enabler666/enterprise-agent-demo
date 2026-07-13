@@ -50,6 +50,27 @@ curl -sS -X POST "http://localhost:8000/chat" \
 
 成功响应包含 Agent 的中文回答。会话与错误处理的实现边界见 [当前调用链](../docs/current-flow.md)。
 
+## SSE 流式聊天
+
+`POST /chat/stream` 使用与 `/chat` 相同的 JSON 请求体，并以
+`text/event-stream` 增量返回 DeepSeek 在生成过程中的最终回答。事件类型包括：
+
+- `status`：Agent 正在处理请求。
+- `tool`：安全、概括的工具开始或完成状态，不包含参数和原始结果。
+- `message`：最终面向用户的回答 Token。
+- `error`：响应流开始后的结构化错误，随后连接结束。
+- `done`：本轮正常完成且会话历史已保存。
+
+SSE 不会输出模型推理、系统提示词、工具参数或 LangGraph 原始事件。可用
+`curl.exe -N` 禁用客户端缓冲并观察增量输出：
+
+```powershell
+curl.exe -N -X POST "http://localhost:8000/chat/stream" -H "Content-Type: application/json; charset=utf-8" -H "Accept: text/event-stream" -d '{"userId":"demo-user","sessionId":"stream-session","message":"XQ202607002 \u76ee\u524d\u8fdb\u5c55\u600e\u4e48\u6837？"}'
+```
+
+客户端中途断开时不会保存残缺的本轮历史。Swagger UI 不适合观察响应到达时序，
+流式验收以 `curl.exe -N` 或支持读取流的客户端为准。
+
 ## 本地端到端验证
 
 最终效果需要同时启动 Java 后端和 Python Agent；默认 Java 后端使用内存数据，不需要 MySQL。

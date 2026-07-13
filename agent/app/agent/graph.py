@@ -2,13 +2,28 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_core.runnables import Runnable
 from langgraph.graph import END, START, StateGraph
 
+from app.agent.events import (
+    AgentExecutionEvent,
+    MessageEvent,
+    StatusEvent,
+    StreamCompletedEvent,
+    ToolEvent,
+)
 from app.agent.state import RequirementAgentState
 from app.agent.tool_schemas import requirement_tool_schemas
 from app.core.config import Settings
@@ -55,6 +70,64 @@ class RequirementAgent:
             answer = "暂时无法完成本次需求查询，请补充条件或稍后重试。"
         return AgentRunResult(answer=answer, history=messages)
 
+    async def stream(
+        self, user_message: str, history: list[BaseMessage] | None = None
+    ) -> AsyncIterator[AgentExecutionEvent]:
+        """将 LangGraph 原生流转换为稳定的业务事件，并返回最终完整历史。"""
+        initial_messages = [*(history or []), HumanMessage(content=user_message)]
+        completed_messages: list[BaseMessage] = []
+        yield StatusEvent()
+
+        async for mode, data in self._graph.astream(
+            {"messages": initial_messages, "tool_rounds": 0},
+            stream_mode=["messages", "updates"],
+        ):
+            if mode == "messages":
+                chunk, metadata = data
+                if metadata.get("langgraph_node") != "model":
+                    continue
+                if isinstance(chunk, AIMessageChunk) and not chunk.tool_call_chunks:
+                    # DeepSeek reasoning_content 属于内部推理；这里只转发标准最终文本 content。
+                    content = chunk.text
+                    if content:
+                        yield MessageEvent(content=content)
+                continue
+
+            if mode != "updates" or not isinstance(data, dict):
+                continue
+            for node_name, update in data.items():
+                if not isinstance(update, dict):
+                    continue
+                messages = update.get("messages", [])
+                if isinstance(messages, list):
+                    completed_messages.extend(
+                        message for message in messages if isinstance(message, BaseMessage)
+                    )
+                if node_name == "model":
+                    for message in messages:
+                        if isinstance(message, AIMessage):
+                            for tool_call in message.tool_calls:
+                                tool_name = tool_call.get("name", "")
+                                yield self._tool_event(tool_name, "started")
+                elif node_name == "tools":
+                    for message in messages:
+                        if isinstance(message, ToolMessage):
+                            yield self._tool_event(message.name or "", "completed")
+
+        # 内部完成事件让每个并发流携带自己的历史，不写入 Agent 共享状态。
+        yield StreamCompletedEvent(history=[*initial_messages, *completed_messages])
+
+    @staticmethod
+    def _tool_event(name: str, status: Literal["started", "completed"]) -> ToolEvent:
+        labels = {
+            "get_requirement_by_no": "需求详情查询",
+            "search_requirements": "需求组合查询",
+            "get_requirement_progress": "需求进度查询",
+        }
+        label = labels.get(name, "需求查询")
+        action = "正在执行" if status == "started" else "执行完成"
+        return ToolEvent(tool=label, status=status, message=f"{label}{action}")
+
     async def _call_model(self, state: RequirementAgentState) -> dict[str, Any]:
         messages = [SystemMessage(content=REQUIREMENT_AGENT_SYSTEM_PROMPT), *state["messages"]]
         response = await self._model.ainvoke(messages)
@@ -82,7 +155,11 @@ class RequirementAgent:
             # 以便下一次模型调用能将结果关联到原始工具调用。
             result = await self._dispatch_tool(tool_call["name"], tool_call["args"])
             messages.append(
-                ToolMessage(content=result.model_dump_json(), tool_call_id=tool_call["id"])
+                ToolMessage(
+                    content=result.model_dump_json(),
+                    tool_call_id=tool_call["id"],
+                    name=tool_call["name"],
+                )
             )
         return {"messages": messages, "tool_rounds": state.get("tool_rounds", 0) + 1}
 

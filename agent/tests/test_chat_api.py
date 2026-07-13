@@ -1,7 +1,10 @@
 import asyncio
+import json
+from collections.abc import AsyncIterator
 
 import httpx
 
+from app.agent.events import AgentStreamEvent, DoneEvent, MessageEvent, StatusEvent
 from app.core.exceptions import AgentConfigurationError
 from app.main import create_app
 from app.schemas.chat import ChatRequest, ChatResponse
@@ -25,6 +28,13 @@ class FakeChatService:
 
     async def close(self) -> None:
         self.closed = True
+
+    async def stream_chat(self, request: ChatRequest) -> AsyncIterator[AgentStreamEvent]:
+        self.requests.append(request)
+        yield StatusEvent()
+        yield MessageEvent(content="模拟")
+        yield MessageEvent(content="回答")
+        yield DoneEvent()
 
 
 def test_chat_returns_answer_and_uses_camel_case_contract() -> None:
@@ -79,3 +89,29 @@ def test_chat_returns_clear_error_when_agent_configuration_is_missing() -> None:
 
     assert response.status_code == 503
     assert response.json()["detail"] == "未配置 DEEPSEEK_API_KEY，无法调用需求 Agent"
+
+
+def test_stream_chat_returns_typed_sse_events() -> None:
+    service = FakeChatService()
+    app = create_app(service)
+
+    async def request() -> httpx.Response:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            return await client.post(
+                "/chat/stream",
+                json={"userId": "user-1", "sessionId": "session-1", "message": "查询需求"},
+            )
+
+    response = asyncio.run(request())
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    blocks = [block for block in response.text.split("\n\n") if block]
+    assert [block.splitlines()[0] for block in blocks] == [
+        "event: status",
+        "event: message",
+        "event: message",
+        "event: done",
+    ]
+    assert json.loads(blocks[1].splitlines()[1].removeprefix("data: "))["content"] == "模拟"

@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Protocol
 
+from app.agent.events import (
+    AgentStreamEvent,
+    DoneEvent,
+    ErrorEvent,
+    StreamCompletedEvent,
+)
 from app.agent.graph import AgentRunResult, RequirementAgent, build_requirement_agent
 from app.clients.requirement_client import RequirementClient
 from app.core.config import Settings
+from app.core.exceptions import AgentConfigurationError
 from app.core.session_store import InMemorySessionStore
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.tools.requirement_tools import RequirementTools
@@ -38,6 +46,30 @@ class ChatService:
         return ChatResponse(
             answer=result.answer, user_id=request.user_id, session_id=request.session_id
         )
+
+    async def stream_chat(self, request: ChatRequest) -> AsyncIterator[AgentStreamEvent]:
+        """流式执行一轮聊天；仅在正常完成后保存会话。"""
+        history = await self._session_store.get(request.user_id, request.session_id)
+        completed = False
+        try:
+            agent = self._get_agent()
+            async for event in agent.stream(request.message, history=history):
+                if isinstance(event, StreamCompletedEvent):
+                    await self._session_store.save(
+                        request.user_id, request.session_id, event.history
+                    )
+                    completed = True
+                    continue
+                yield event
+            if completed:
+                yield DoneEvent()
+            else:
+                yield ErrorEvent(code="STREAM_ERROR", message="流式聊天未正常完成")
+        except AgentConfigurationError as error:
+            yield ErrorEvent(code="AGENT_UNAVAILABLE", message=str(error))
+        except Exception:
+            # SSE 响应开始后不能再修改 HTTP 状态码，也不能暴露内部异常细节。
+            yield ErrorEvent(code="STREAM_ERROR", message="流式聊天执行失败，请稍后重试")
 
     async def close(self) -> None:
         """应用关闭时释放由 Client 持有的 HTTP 连接池。"""
