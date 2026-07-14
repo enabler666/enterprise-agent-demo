@@ -17,6 +17,11 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-chat
 BACKEND_BASE_URL=http://localhost:8080
 BACKEND_TIMEOUT_SECONDS=10
+SILICONFLOW_API_KEY
+SILICONFLOW_BASE_URL=https://api.siliconflow.cn/v1
+SILICONFLOW_EMBEDDING_MODEL=BAAI/bge-m3
+CHROMA_PERSIST_DIRECTORY=data/chroma
+CHROMA_COLLECTION_NAME=requirement_knowledge
 ```
 
 Agent 只通过 Java API 获取业务数据，不直接访问数据库。Java 接口契约见 [需求查询 API](../docs/requirement-api.md)。缺少 `DEEPSEEK_API_KEY` 时，健康检查仍可用，`/chat` 返回配置错误。
@@ -147,5 +152,31 @@ uv run python -m app.rag.preview
 Markdown 标题和自然段边界，默认目标长度为 700 字符；超长段落优先在中文句末
 继续切分，并保留约 100 字符重叠，兼顾业务章节完整性和边界上下文。
 
-当前阶段仅提供 Markdown 加载、文本切分和开发预览，尚未实现 Embedding、向量
-检索、Agent 接入或 FastAPI 接口。
+## 本地知识向量索引与检索预览
+
+在 `.env` 或当前终端配置 `SILICONFLOW_API_KEY` 后，可将已经加载和切分的
+Markdown 文档批量提交到硅基流动 Embedding API，并完整重建本地索引：
+
+```bash
+uv run python -m app.rag.indexer
+```
+
+索引命令会输出知识库目录、文档与 chunk 数量、Embedding 模型、collection、
+持久化目录和实际写入数量。当前采用“构建前删除 collection，再完整写入”的策略，
+因此重复执行不会累积重复 chunk，已经从知识库删除的文档也不会残留在索引中。
+
+使用相同模型生成问题向量并预览最相关的三个文本块：
+
+```bash
+uv run python -m app.rag.search_preview "为什么需求既可以删除，也可以废弃？"
+uv run python -m app.rag.search_preview "一级统筹是不是必须经过？" --top-k 5
+```
+
+输出中的 `distance` 是 Chroma 距离，数值越小表示越相关。Chroma 使用
+`PersistentClient` 在 `agent/data/chroma/` 持久化，不需要启动独立服务；该目录已被
+Git 忽略，不提交本地索引文件。相对的 `CHROMA_PERSIST_DIRECTORY` 始终以 `agent/`
+为基准，不依赖启动命令所在目录。
+
+索引记录了构建时的 Embedding 模型。更换 `SILICONFLOW_EMBEDDING_MODEL` 后必须重新
+运行索引命令，否则检索会明确拒绝模型不一致的索引。当前阶段只返回相关文本块及
+来源，不生成最终答案、不接入 Agent，也不增加 FastAPI 接口。

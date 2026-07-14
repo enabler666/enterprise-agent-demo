@@ -18,6 +18,7 @@
 *.py[cod]
 .coverage
 htmlcov/
+agent/data/chroma/
 
 # OS
 .DS_Store

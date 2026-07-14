@@ -25,3 +25,17 @@ class KnowledgeChunk(BaseModel):
     source: str
     document_title: str
     chunk_index: int = Field(ge=0)
+
+
+class RetrievedChunk(BaseModel):
+    """按 Chroma distance 从小到大返回的知识文本块。"""
+
+    model_config = ConfigDict(frozen=True)
+
+    content: str
+    chunk_id: str
+    document_id: str
+    document_title: str
+    source: str
+    chunk_index: int = Field(ge=0)
+    distance: float | None
