@@ -1,4 +1,5 @@
 """知识库完整重建命令。"""
+# 索引建立入口
 
 from __future__ import annotations
 
@@ -17,6 +18,7 @@ _REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 _DEFAULT_KNOWLEDGE_ROOT = _REPOSITORY_ROOT / "knowledge"
 
 
+# 意思是创建之后不可变的，用于做返回值的实体类，没什么用
 @dataclass(frozen=True)
 class IndexSummary:
     knowledge_root: Path
@@ -70,6 +72,7 @@ async def _run() -> None:
     store = ChromaVectorStore(
         settings.chroma_persist_directory, settings.chroma_collection_name
     )
+    # 意义是类似Java的try-with-resources，执行__aexit__方法，确保资源被正确释放
     async with SiliconFlowEmbeddingProvider(
         settings.siliconflow_api_key,
         str(settings.siliconflow_base_url),
@@ -86,6 +89,7 @@ async def _run() -> None:
 
 
 def main() -> None:
+    # 这个是允许运行异步函数的入口，至于为什么是异步:因为rebuild是异步，因为调用向量化接口是异步，所以全都是异步的
     asyncio.run(_run())
 
 
