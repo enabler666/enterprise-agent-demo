@@ -53,13 +53,17 @@ class ChatService:
         completed = False
         try:
             agent = self._get_agent()
+            # 不知道是什么狗娘养的总是返回可迭代的，可持续迭代的对象
             async for event in agent.stream(request.message, history=history):
+                # 如果发现流式传输结束 进入结束流程 保存会话历史
                 if isinstance(event, StreamCompletedEvent):
+                    # await没什么用，是用来做性能优化的，保证是响应式
                     await self._session_store.save(
                         request.user_id, request.session_id, event.history
                     )
                     completed = True
                     continue
+                # 如果返回内容正常，直接返回事件 如果完成了会被continue跳过
                 yield event
             if completed:
                 yield DoneEvent()
