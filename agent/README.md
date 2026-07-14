@@ -133,3 +133,19 @@ uv run pytest
 uv run ruff check .
 uv run mypy app tests
 ```
+
+## Markdown 知识文档预览
+
+业务知识文档位于仓库根目录的 `knowledge/`，当前只递归加载 UTF-8 Markdown
+文件。可在 `agent/` 目录运行以下命令，人工查看文档及文本块数量、来源和正文：
+
+```bash
+uv run python -m app.rag.preview
+```
+
+如需临时预览其他目录，可设置 `KNOWLEDGE_ROOT` 环境变量。切分器优先使用
+Markdown 标题和自然段边界，默认目标长度为 700 字符；超长段落优先在中文句末
+继续切分，并保留约 100 字符重叠，兼顾业务章节完整性和边界上下文。
+
+当前阶段仅提供 Markdown 加载、文本切分和开发预览，尚未实现 Embedding、向量
+检索、Agent 接入或 FastAPI 接口。
