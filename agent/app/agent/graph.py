@@ -56,6 +56,7 @@ class RequirementAgent:
         builder.add_edge("tools", "model")
         # LangGraph 必须 compile 后才可调用；编译会检查孤立节点和边连接。
         self._graph = builder.compile()
+        # graph的可行一条路径 model(最开始注册模型时提供了tool) -> 语言模型返回了标准的json，表示需要一个工具调用 -> tools节点 -> model节点(查询信息放到了上下文,再次模型推理) -> end
 
     async def ask(
         self, user_message: str, history: list[BaseMessage] | None = None
