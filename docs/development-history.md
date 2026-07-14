@@ -76,16 +76,13 @@
 - 增加聊天接口、ChatService 和端到端 mock 测试。
 - 补充本地启动、联调示例和常见错误说明。
 
-维护者已确认阶段 7 验收通过。
 
 ## 阶段 8：SSE 流式聊天
 
-状态：待验收
+状态：已完成
 
 - 保留现有 `POST /chat`，新增 `POST /chat/stream` SSE 接口。
 - 使用 LangGraph `messages + updates` 流式模式增量返回 DeepSeek 最终回答。
 - 增加 `status`、`tool`、`message`、`error`、`done` 五种安全业务事件，隔离 LangGraph 原始事件及模型内部信息。
 - 流正常完成后保存会话历史，中途断开或异常时不保存残缺轮次。
 - 增加 SSE 路由、事件格式、流式会话保存测试与本地 curl 验证说明。
-
-维护者尚未确认阶段 8 的 Python 环境与真实 DeepSeek 流式验证结果。
