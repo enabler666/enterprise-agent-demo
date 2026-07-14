@@ -105,3 +105,13 @@
 - 已提供职责分离的索引构建、相似度检索能力和独立预览命令。
 - 已校验索引与查询使用相同的 Embedding 模型，并增加隔离的本地向量存储与检索测试。
 - 本阶段只验证检索能力，不接入 Agent、不生成最终回答、不修改 Java 后端。
+
+## 阶段 11：知识库检索 Tool 与 Agent 接入
+
+状态：待验收
+
+- 已将现有 `KnowledgeRetriever` 封装为 `search_knowledge` Tool，并接入当前 LangGraph 的模型绑定与工具分发流程。
+- 已按应用生命周期注入 Embedding Provider、Chroma VectorStore 和 Retriever，服务关闭时释放 HTTP 连接，且不会自动构建索引。
+- 已补充知识回答约束、来源引用规则、安全错误结果和“企业知识库检索”SSE 状态展示。
+- 已使用 Fake Model、Fake Retriever 和临时 Chroma 增加隔离测试；Python 测试与静态检查等待维护者验收。
+- 本阶段未修改 Java 后端，未组合结构化业务查询与知识库检索。

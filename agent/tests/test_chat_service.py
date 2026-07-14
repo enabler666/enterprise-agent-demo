@@ -1,13 +1,16 @@
 import asyncio
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any, cast
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from pydantic import SecretStr
 
 from app.agent.events import AgentExecutionEvent, MessageEvent, StreamCompletedEvent
 from app.agent.graph import AgentRunResult, RequirementAgent
 from app.agent.service import ChatService
 from app.core.config import Settings
+from app.rag.indexer import KnowledgeIndexer
 from app.schemas.chat import ChatRequest
 
 
@@ -35,7 +38,7 @@ class FakeAgent:
 def test_chat_service_reuses_history_only_within_same_user_session() -> None:
     fake_agent = FakeAgent()
 
-    def factory(_: Settings, __: Any) -> RequirementAgent:
+    def factory(_: Settings, __: Any, ___: Any) -> RequirementAgent:
         return cast(RequirementAgent, fake_agent)
 
     service = ChatService(Settings(), agent_factory=factory)
@@ -56,7 +59,7 @@ def test_chat_service_reuses_history_only_within_same_user_session() -> None:
 def test_stream_chat_saves_history_only_after_completion() -> None:
     fake_agent = FakeAgent()
 
-    def factory(_: Settings, __: Any) -> RequirementAgent:
+    def factory(_: Settings, __: Any, ___: Any) -> RequirementAgent:
         return cast(RequirementAgent, fake_agent)
 
     service = ChatService(Settings(), agent_factory=factory)
@@ -76,3 +79,33 @@ def test_stream_chat_saves_history_only_after_completion() -> None:
 
     assert event_types == ["message", "message", "done"]
     assert len(fake_agent.histories[1]) == 2
+
+
+def test_chat_service_does_not_automatically_rebuild_knowledge_index(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    fake_agent = FakeAgent()
+
+    async def forbidden_rebuild(_: KnowledgeIndexer) -> None:
+        raise AssertionError("服务启动或聊天时不应自动构建知识索引")
+
+    monkeypatch.setattr(KnowledgeIndexer, "rebuild", forbidden_rebuild)
+
+    def factory(_: Settings, __: Any, ___: Any) -> RequirementAgent:
+        return cast(RequirementAgent, fake_agent)
+
+    service = ChatService(
+        Settings(
+            siliconflow_api_key=SecretStr("test-key"),
+            chroma_persist_directory=tmp_path / "chroma",
+        ),
+        agent_factory=factory,
+    )
+
+    async def run() -> None:
+        await service.chat(
+            ChatRequest(user_id="user-1", session_id="session-index", message="流程规则")
+        )
+        await service.close()
+
+    asyncio.run(run())

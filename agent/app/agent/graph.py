@@ -28,6 +28,7 @@ from app.agent.state import RequirementAgentState
 from app.agent.tool_schemas import requirement_tool_schemas
 from app.core.config import Settings
 from app.prompts.requirement_agent import REQUIREMENT_AGENT_SYSTEM_PROMPT
+from app.tools.knowledge_tools import KnowledgeTools
 from app.tools.requirement_tools import RequirementTools
 from app.tools.result import ToolExecutionResult
 
@@ -43,9 +44,15 @@ class AgentRunResult:
 class RequirementAgent:
     """由“模型判断 → 执行工具 → 模型回答”组成的只读工作流。"""
 
-    def __init__(self, model: Runnable[Any, BaseMessage], tools: RequirementTools) -> None:
+    def __init__(
+        self,
+        model: Runnable[Any, BaseMessage],
+        requirement_tools: RequirementTools,
+        knowledge_tools: KnowledgeTools,
+    ) -> None:
         self._model = model
-        self._tools = tools
+        self._requirement_tools = requirement_tools
+        self._knowledge_tools = knowledge_tools
         builder = StateGraph(RequirementAgentState)
         # 节点只交换 State 的增量：messages 由 State 中的 reducer 追加，tool_rounds 用于限制
         # “模型请求工具 → 工具结果回注模型”的循环次数，避免异常模型响应造成无限调用。
@@ -130,6 +137,7 @@ class RequirementAgent:
             "get_requirement_by_no": "需求详情查询",
             "search_requirements": "需求组合查询",
             "get_requirement_progress": "需求进度查询",
+            "search_knowledge": "企业知识库检索",
         }
         label = labels.get(name, "需求查询")
         action = "正在执行" if status == "started" else "执行完成"
@@ -172,19 +180,25 @@ class RequirementAgent:
 
     async def _dispatch_tool(self, name: str, arguments: object) -> ToolExecutionResult[Any]:
         if name == "get_requirement_by_no":
-            return await self._tools.get_requirement_by_no(arguments)
+            return await self._requirement_tools.get_requirement_by_no(arguments)
         if name == "search_requirements":
-            return await self._tools.search_requirements(arguments)
+            return await self._requirement_tools.search_requirements(arguments)
         if name == "get_requirement_progress":
-            return await self._tools.get_requirement_progress(arguments)
+            return await self._requirement_tools.get_requirement_progress(arguments)
+        if name == "search_knowledge":
+            return await self._knowledge_tools.search_knowledge(arguments)
         return ToolExecutionResult.failure(code="UNKNOWN_TOOL", message="不支持的查询操作")
 
 
-def build_requirement_agent(settings: Settings, tools: RequirementTools) -> RequirementAgent:
-    """生产环境工厂：创建 DeepSeek 模型并绑定三个只读工具 Schema。"""
+def build_requirement_agent(
+    settings: Settings,
+    requirement_tools: RequirementTools,
+    knowledge_tools: KnowledgeTools,
+) -> RequirementAgent:
+    """生产环境工厂：创建 DeepSeek 模型并绑定全部只读工具 Schema。"""
     # 延迟导入避免仅启动健康检查时就初始化模型依赖或校验 API Key。
     from app.agent.model import create_deepseek_chat_model
 
     model = create_deepseek_chat_model(settings)
     model_with_tools = model.bind_tools(requirement_tool_schemas())
-    return RequirementAgent(model_with_tools, tools)
+    return RequirementAgent(model_with_tools, requirement_tools, knowledge_tools)

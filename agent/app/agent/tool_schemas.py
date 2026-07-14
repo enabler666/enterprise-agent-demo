@@ -4,7 +4,7 @@ from typing import Any
 
 
 def requirement_tool_schemas() -> list[dict[str, Any]]:
-    """只描述模型可调用的参数，不包含 Java URL 等实现细节。"""
+    """描述模型可调用的需求数据与知识库工具，不包含实现细节。"""
     requirement_no = {
         "type": "object",
         "properties": {
@@ -57,6 +57,26 @@ def requirement_tool_schemas() -> list[dict[str, Any]]:
                 "name": "get_requirement_progress",
                 "description": "根据需求编号查询当前状态、处理节点和预计完成日期",
                 "parameters": requirement_no,
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "search_knowledge",
+                "description": "根据用户问题检索企业需求管理相关业务规则、操作说明和流程说明",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2000,
+                            "description": "需要查询知识库的完整业务问题",
+                        }
+                    },
+                    "required": ["query"],
+                    "additionalProperties": False,
+                },
             },
         },
     ]

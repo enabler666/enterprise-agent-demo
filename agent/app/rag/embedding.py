@@ -50,6 +50,10 @@ class SiliconFlowEmbeddingProvider:
         return self
 
     async def __aexit__(self, *args: object) -> None:
+        await self.close()
+
+    async def close(self) -> None:
+        """释放由 Provider 自己创建的 HTTP 连接池。"""
         if self._owns_client:
             await self._client.aclose()
 

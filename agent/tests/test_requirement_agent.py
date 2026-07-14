@@ -5,11 +5,16 @@ import pytest
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.runnables import Runnable
 
+from app.agent.events import ToolEvent
 from app.agent.graph import RequirementAgent
 from app.agent.model import create_deepseek_chat_model
+from app.agent.tool_schemas import requirement_tool_schemas
 from app.core.config import Settings
 from app.core.exceptions import AgentConfigurationError
+from app.prompts.requirement_agent import REQUIREMENT_AGENT_SYSTEM_PROMPT
+from app.rag.models import RetrievedChunk
 from app.schemas.requirement import Requirement, RequirementProgress, RequirementQuery
+from app.tools.knowledge_tools import KnowledgeTools
 from app.tools.requirement_tools import RequirementTools
 
 
@@ -76,7 +81,7 @@ def test_agent_calls_tool_then_generates_final_answer() -> None:
         ]
     )
     model = cast(Runnable[Any, BaseMessage], fake_model)
-    agent = RequirementAgent(model, RequirementTools(StubBackend()))
+    agent = RequirementAgent(model, RequirementTools(StubBackend()), KnowledgeTools(None))
 
     result = asyncio.run(agent.ask("查询 XQ202607001"))
 
@@ -88,13 +93,17 @@ def test_agent_calls_tool_then_generates_final_answer() -> None:
 def test_agent_accepts_previous_history_for_next_turn() -> None:
     first_model = FakeChatModel([AIMessage(content="请提供需求编号。")])
     first_agent = RequirementAgent(
-        cast(Runnable[Any, BaseMessage], first_model), RequirementTools(StubBackend())
+        cast(Runnable[Any, BaseMessage], first_model),
+        RequirementTools(StubBackend()),
+        KnowledgeTools(None),
     )
     first = asyncio.run(first_agent.ask("帮我查一下需求"))
 
     second_model = FakeChatModel([AIMessage(content="好的，我来查询。")])
     second_agent = RequirementAgent(
-        cast(Runnable[Any, BaseMessage], second_model), RequirementTools(StubBackend())
+        cast(Runnable[Any, BaseMessage], second_model),
+        RequirementTools(StubBackend()),
+        KnowledgeTools(None),
     )
     second = asyncio.run(second_agent.ask("编号是 XQ202607001", history=first.history))
 
@@ -106,3 +115,158 @@ def test_agent_accepts_previous_history_for_next_turn() -> None:
 def test_missing_api_key_returns_configuration_error_without_network_call() -> None:
     with pytest.raises(AgentConfigurationError, match="DEEPSEEK_API_KEY"):
         create_deepseek_chat_model(Settings(deepseek_api_key=None))
+
+
+class StubKnowledgeRetriever:
+    def __init__(self) -> None:
+        self.queries: list[tuple[str, int]] = []
+
+    async def retrieve(self, query: str, top_k: int = 3) -> list[RetrievedChunk]:
+        self.queries.append((query, top_k))
+        return [
+            RetrievedChunk(
+                content="一级统筹是否经过由组织配置决定；分派和最终统筹不能取消。",
+                chunk_id="internal-chunk-id",
+                document_id="document-1",
+                document_title="需求提报及流转相关说明",
+                source="raw/需求提报及流转相关说明.md",
+                chunk_index=2,
+                distance=0.12,
+            )
+        ]
+
+
+def test_knowledge_question_calls_tool_and_final_answer_has_unique_source() -> None:
+    question = "一级统筹是不是必须经过？"
+    final_answer = (
+        "一级统筹并非所有组织都必须经过，是否启用由组织流程配置决定；"
+        "分派和最终统筹是必须环节。\n\n"
+        "参考来源：\n- 《需求提报及流转相关说明》，需求提报及流转相关说明.md"
+    )
+    fake_model = FakeChatModel(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "search_knowledge",
+                        "args": {"query": question},
+                        "id": "call-knowledge-1",
+                        "type": "tool_call",
+                    }
+                ],
+            ),
+            AIMessage(content=final_answer),
+        ]
+    )
+    retriever = StubKnowledgeRetriever()
+    agent = RequirementAgent(
+        cast(Runnable[Any, BaseMessage], fake_model),
+        RequirementTools(StubBackend()),
+        KnowledgeTools(retriever),
+    )
+
+    result = asyncio.run(agent.ask(question))
+
+    assert retriever.queries == [(question, 3)]
+    assert "参考来源" in result.answer
+    assert result.answer.count("需求提报及流转相关说明.md") == 1
+    tool_message = next(
+        message for message in result.history if isinstance(message, ToolMessage)
+    )
+    assert "document_title" in tool_message.text
+    assert "distance" not in tool_message.text
+    assert "internal-chunk-id" not in tool_message.text
+
+
+def test_search_knowledge_stream_events_use_readable_label() -> None:
+    fake_model = FakeChatModel(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "search_knowledge",
+                        "args": {"query": "为什么删除和废弃不同？"},
+                        "id": "call-knowledge-stream",
+                        "type": "tool_call",
+                    }
+                ],
+            ),
+            AIMessage(content="根据知识资料，两者适用阶段和保留方式不同。"),
+        ]
+    )
+    agent = RequirementAgent(
+        cast(Runnable[Any, BaseMessage], fake_model),
+        RequirementTools(StubBackend()),
+        KnowledgeTools(StubKnowledgeRetriever()),
+    )
+
+    async def collect() -> list[ToolEvent]:
+        return [
+            event
+            async for event in agent.stream("为什么删除和废弃不同？")
+            if isinstance(event, ToolEvent)
+        ]
+
+    events = asyncio.run(collect())
+
+    assert [(event.tool, event.status) for event in events] == [
+        ("企业知识库检索", "started"),
+        ("企业知识库检索", "completed"),
+    ]
+
+
+def test_system_prompt_requires_grounded_knowledge_answers_and_sources() -> None:
+    assert "必须调用 search_knowledge" in REQUIREMENT_AGENT_SYSTEM_PROMPT
+    assert "不得编造业务规则" in REQUIREMENT_AGENT_SYSTEM_PROMPT
+    assert "参考来源" in REQUIREMENT_AGENT_SYSTEM_PROMPT
+    assert "相同文档只列一次" in REQUIREMENT_AGENT_SYSTEM_PROMPT
+    assert "distance" in REQUIREMENT_AGENT_SYSTEM_PROMPT
+
+
+def test_search_knowledge_schema_exposes_only_query() -> None:
+    schema = next(
+        item
+        for item in requirement_tool_schemas()
+        if item["function"]["name"] == "search_knowledge"
+    )
+
+    assert set(schema["function"]["parameters"]["properties"]) == {"query"}
+
+
+def test_empty_knowledge_result_leads_to_explicit_insufficient_information_answer() -> None:
+    class EmptyRetriever:
+        async def retrieve(self, query: str, top_k: int = 3) -> list[RetrievedChunk]:
+            return []
+
+    fake_model = FakeChatModel(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "search_knowledge",
+                        "args": {"query": "公司内部的未知审批规则是什么？"},
+                        "id": "call-empty-knowledge",
+                        "type": "tool_call",
+                    }
+                ],
+            ),
+            AIMessage(content="知识库中未找到足够信息，无法确认该内部规则。"),
+        ]
+    )
+    agent = RequirementAgent(
+        cast(Runnable[Any, BaseMessage], fake_model),
+        RequirementTools(StubBackend()),
+        KnowledgeTools(EmptyRetriever()),
+    )
+
+    result = asyncio.run(agent.ask("公司内部的未知审批规则是什么？"))
+
+    assert result.answer == "知识库中未找到足够信息，无法确认该内部规则。"
+    tool_message = next(
+        message for message in result.history if isinstance(message, ToolMessage)
+    )
+    assert '"status":"NO_RESULT"' in tool_message.text
+    assert '"data":null' in tool_message.text

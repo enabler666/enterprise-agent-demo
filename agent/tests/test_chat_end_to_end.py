@@ -10,6 +10,7 @@ from app.agent.service import ChatService
 from app.clients.requirement_client import RequirementClient
 from app.core.config import Settings
 from app.main import create_app
+from app.tools.knowledge_tools import KnowledgeTools
 from app.tools.requirement_tools import RequirementTools
 
 
@@ -67,9 +68,11 @@ def test_chat_calls_agent_tool_and_mocked_java_backend() -> None:
     http_client = httpx.AsyncClient(transport=httpx.MockTransport(java_backend))
     client = RequirementClient(Settings(), client=http_client)
     model = cast(Runnable[Any, BaseMessage], ToolCallingModel())
-    agent = RequirementAgent(model, RequirementTools(client))
+    agent = RequirementAgent(model, RequirementTools(client), KnowledgeTools(None))
 
-    def factory(_: Settings, __: RequirementTools) -> RequirementAgent:
+    def factory(
+        _: Settings, __: RequirementTools, ___: KnowledgeTools
+    ) -> RequirementAgent:
         return agent
 
     app = create_app(ChatService(Settings(), agent_factory=factory))

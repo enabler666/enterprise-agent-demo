@@ -103,6 +103,15 @@ def test_missing_index_and_model_mismatch_are_explicit(tmp_path: Path) -> None:
         asyncio.run(KnowledgeRetriever(changed_provider, store).retrieve("问题"))
 
 
+def test_empty_collection_is_reported_as_index_not_ready(tmp_path: Path) -> None:
+    provider = FakeEmbeddingProvider()
+    store = ChromaVectorStore(tmp_path / "chroma", "empty_collection")
+    assert store.rebuild([], [], provider.model_name) == 0
+
+    with pytest.raises(VectorStoreError, match="尚未建立知识索引"):
+        asyncio.run(KnowledgeRetriever(provider, store).retrieve("流程规则"))
+
+
 def make_knowledge_base(tmp_path: Path) -> Path:
     root = tmp_path / "knowledge"
     root.mkdir(exist_ok=True)

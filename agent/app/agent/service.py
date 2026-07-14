@@ -16,12 +16,21 @@ from app.clients.requirement_client import RequirementClient
 from app.core.config import Settings
 from app.core.exceptions import AgentConfigurationError
 from app.core.session_store import InMemorySessionStore
+from app.rag.embedding import SiliconFlowEmbeddingProvider
+from app.rag.retriever import KnowledgeRetriever
+from app.rag.vector_store import ChromaVectorStore
 from app.schemas.chat import ChatRequest, ChatResponse
+from app.tools.knowledge_tools import KnowledgeTools
 from app.tools.requirement_tools import RequirementTools
 
 
 class RequirementAgentFactory(Protocol):
-    def __call__(self, settings: Settings, tools: RequirementTools) -> RequirementAgent: ...
+    def __call__(
+        self,
+        settings: Settings,
+        requirement_tools: RequirementTools,
+        knowledge_tools: KnowledgeTools,
+    ) -> RequirementAgent: ...
 
 
 class ChatService:
@@ -37,6 +46,7 @@ class ChatService:
         self._session_store = session_store or InMemorySessionStore()
         self._agent_factory = agent_factory
         self._client: RequirementClient | None = None
+        self._embedding_provider: SiliconFlowEmbeddingProvider | None = None
         self._agent: RequirementAgent | None = None
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
@@ -79,11 +89,28 @@ class ChatService:
         """应用关闭时释放由 Client 持有的 HTTP 连接池。"""
         if self._client is not None:
             await self._client.close()
+        if self._embedding_provider is not None:
+            await self._embedding_provider.close()
 
     def _get_agent(self) -> RequirementAgent:
         """惰性创建：/health 不需要模型 Key 或 Java 后端即可工作。"""
         if self._agent is None:
             self._client = RequirementClient(self._settings)
-            tools = RequirementTools(self._client)
-            self._agent = self._agent_factory(self._settings, tools)
+            requirement_tools = RequirementTools(self._client)
+            retriever: KnowledgeRetriever | None = None
+            if self._settings.siliconflow_api_key is not None:
+                self._embedding_provider = SiliconFlowEmbeddingProvider(
+                    self._settings.siliconflow_api_key,
+                    str(self._settings.siliconflow_base_url),
+                    self._settings.siliconflow_embedding_model,
+                )
+                vector_store = ChromaVectorStore(
+                    self._settings.chroma_persist_directory,
+                    self._settings.chroma_collection_name,
+                )
+                retriever = KnowledgeRetriever(self._embedding_provider, vector_store)
+            knowledge_tools = KnowledgeTools(retriever)
+            self._agent = self._agent_factory(
+                self._settings, requirement_tools, knowledge_tools
+            )
         return self._agent
