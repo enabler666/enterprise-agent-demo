@@ -1,13 +1,12 @@
 # Enterprise Support Agent Service
 
-Python Agent 服务，提供 FastAPI 聊天接口、异步 Java `RequirementClient`、只读查询工具，以及 DeepSeek + LangGraph 编排。本文只说明 Agent 的配置、运行、接口和验证；完整跨模块实现见 [当前调用链](../docs/current-flow.md)。
+Python 3.14 Agent 服务提供 FastAPI 普通聊天与 SSE 流式聊天，使用 DeepSeek + LangGraph 编排三个需求查询 Tool 和一个知识检索 Tool。需求数据只通过异步 `httpx` 调用 Java API；知识问答通过 SiliconFlow Embedding 查询本地 Chroma 索引。
+
+## 安装与配置
 
 ```bash
 uv sync
-uv run uvicorn app.main:app --reload --port 8000
 ```
-
-## 配置
 
 配置全部来自环境变量：
 
@@ -24,16 +23,40 @@ CHROMA_PERSIST_DIRECTORY=data/chroma
 CHROMA_COLLECTION_NAME=requirement_knowledge
 ```
 
-Agent 只通过 Java API 获取业务数据，不直接访问数据库。Java 接口契约见 [需求查询 API](../docs/requirement-api.md)。缺少 `DEEPSEEK_API_KEY` 时，健康检查仍可用，`/chat` 返回配置错误。
+Agent 不直接访问数据库。缺少 `DEEPSEEK_API_KEY` 时 `/health` 仍可用，普通 `/chat` 返回 HTTP 503，已开始的 SSE 流返回 `AGENT_UNAVAILABLE` 类型的 `error` 事件。
 
-当前默认模型仍为 `deepseek-chat`，可通过 `DEEPSEEK_MODEL` 替换。DeepSeek 官方已提示该别名将在 2026-07-24 弃用，部署时应按账号可用模型更新环境变量。
+缺少 `SILICONFLOW_API_KEY` 时，三个需求查询 Tool 仍可工作；模型选择 `search_knowledge` 后会收到 `EMBEDDING_NOT_CONFIGURED` 安全错误。服务不会自动构建知识索引：索引不存在时返回 `KNOWLEDGE_INDEX_NOT_READY`，当前查询模型与索引模型不一致时返回 `EMBEDDING_MODEL_MISMATCH`。这些结果不会暴露密钥、底层堆栈或本地目录。
 
-## 聊天接口
+## 构建知识索引
 
-```http
-POST /chat
-Content-Type: application/json
+业务知识位于仓库根目录 `knowledge/`。加载器递归读取 UTF-8 Markdown，切分器优先按 Markdown 标题和自然段切分，超长段落再按中文句末切分；默认目标长度约 700 字符、重叠约 100 字符。
+
+配置 `SILICONFLOW_API_KEY` 后，在 `agent/` 目录完整重建索引：
+
+```bash
+uv run python -m app.rag.indexer
 ```
+
+索引器会先删除同名 collection 再完整写入，因此重复构建不会累积重复 chunk，已删除文档也不会残留。Chroma 使用 `PersistentClient` 在本地持久化；相对的 `CHROMA_PERSIST_DIRECTORY` 始终以 `agent/` 为基准。
+
+预览 Markdown 切分结果与向量检索结果：
+
+```bash
+uv run python -m app.rag.preview
+uv run python -m app.rag.search_preview "一级统筹是不是必须经过？"
+```
+
+预览命令可以显示检索内部字段用于本地诊断；Agent 最终回答不会向用户输出向量、distance、chunk ID、片段序号或绝对路径。
+
+## 启动服务
+
+```bash
+uv run uvicorn app.main:app --reload --port 8000
+```
+
+健康检查为 `GET http://localhost:8000/health`。需求查询还需启动 Java 后端；知识问答需要预先构建索引并保持查询与索引使用相同的 Embedding 模型。
+
+## 普通聊天 `POST /chat`
 
 请求体：
 
@@ -41,76 +64,97 @@ Content-Type: application/json
 {
   "userId": "user-001",
   "sessionId": "session-001",
-  "message": "查询 XQ202607001 的当前进度"
+  "message": "查询 XQ202607002 的当前进度"
 }
 ```
 
-`userId + sessionId` 在当前进程内唯一标识会话，最多保留最近 20 条消息；服务重启后会话会清空。当前实现不使用 Redis 或数据库。
+业务查询：
 
 ```bash
 curl -sS -X POST "http://localhost:8000/chat" \
   -H "Content-Type: application/json" \
-  -d '{"userId":"user-001","sessionId":"session-001","message":"查询 XQ202607001"}'
+  -d '{"userId":"user-001","sessionId":"session-001","message":"查询 XQ202607002 的当前进度"}'
 ```
 
-成功响应包含 Agent 的中文回答。会话与错误处理的实现边界见 [当前调用链](../docs/current-flow.md)。
+知识问答：
 
-## SSE 流式聊天
-
-`POST /chat/stream` 使用与 `/chat` 相同的 JSON 请求体，并以
-`text/event-stream` 增量返回 DeepSeek 在生成过程中的最终回答。事件类型包括：
-
-- `status`：Agent 正在处理请求。
-- `tool`：安全、概括的工具开始或完成状态，不包含参数和原始结果。
-- `message`：最终面向用户的回答 Token。
-- `error`：响应流开始后的结构化错误，随后连接结束。
-- `done`：本轮正常完成且会话历史已保存。
-
-SSE 不会输出模型推理、系统提示词、工具参数或 LangGraph 原始事件。可用
-`curl.exe -N` 禁用客户端缓冲并观察增量输出：
-
-```powershell
-curl.exe -N -X POST "http://localhost:8000/chat/stream" -H "Content-Type: application/json; charset=utf-8" -H "Accept: text/event-stream" -d '{"userId":"demo-user","sessionId":"stream-session","message":"XQ202607002 \u76ee\u524d\u8fdb\u5c55\u600e\u4e48\u6837？"}'
+```bash
+curl -sS -X POST "http://localhost:8000/chat" \
+  -H "Content-Type: application/json" \
+  -d '{"userId":"user-001","sessionId":"knowledge-001","message":"一级统筹是不是必须经过？"}'
 ```
 
-客户端中途断开时不会保存残缺的本轮历史。Swagger UI 不适合观察响应到达时序，
-流式验收以 `curl.exe -N` 或支持读取流的客户端为准。
+回答由模型根据实际召回内容生成，来源格式示例：
 
-## 本地端到端验证
+```text
+一级统筹并非所有组织都必须经过，是否启用取决于组织当前配置。
 
-最终效果需要同时启动 Java 后端和 Python Agent；默认 Java 后端使用内存数据，不需要 MySQL。
+参考来源：
+- 《需求提报及流转相关说明》，需求提报及流转相关说明.md
+```
 
-1. 在一个终端启动 Java 后端：
+找不到足够资料时，系统提示模型明确说明无法确认，不允许使用常识编造企业内部规则。
 
-   ```powershell
-   cd backend
-   .\mvnw.cmd spring-boot:run
-   ```
+## SSE 流式聊天 `POST /chat/stream`
 
-2. 在另一个终端启动 Agent，并设置 DeepSeek API Key：
+流式接口使用与 `/chat` 相同的请求体，并复用同一套 Agent、Tool 与会话流程：
 
-   ```powershell
-   cd agent
-   $env:DEEPSEEK_API_KEY="你的 DeepSeek API Key"
-   $env:BACKEND_BASE_URL="http://localhost:8080"
-   uv run uvicorn app.main:app --reload --port 8000
-   ```
+```bash
+curl -N -X POST "http://localhost:8000/chat/stream" \
+  -H "Content-Type: application/json" \
+  -H "Accept: text/event-stream" \
+  -d '{"userId":"user-001","sessionId":"knowledge-stream","message":"一级统筹是不是必须经过？"}'
+```
 
-3. 使用以下命令分别验证两个服务、Java 业务数据和最终聊天效果：
+知识问答的典型事件序列如下，具体 `message` 数量取决于模型输出分块：
 
-   ```powershell
-   # Java 后端与 Python Agent 健康检查
-   curl.exe -sS http://localhost:8080/health
-   curl.exe -sS http://localhost:8000/health
+```text
+event: status
+data: {"type":"status","status":"processing","message":"正在处理请求"}
 
-   # Java 后端的示例需求数据
-   curl.exe -sS http://localhost:8080/api/requirements/XQ202607002/progress
+event: tool
+data: {"tool":"企业知识库检索","status":"started","message":"企业知识库检索正在执行","type":"tool"}
 
-   # Agent → DeepSeek → Java 后端；单行命令可用于 PowerShell、Bash 和 CMD
-   curl.exe -sS -X POST "http://localhost:8000/chat" -H "Content-Type: application/json; charset=utf-8" -d '{"userId":"demo-user","sessionId":"demo-session","message":"XQ202607002 \u76ee\u524d\u8fdb\u5c55\u600e\u4e48\u6837\uff1f"}'
-   ```
+event: tool
+data: {"tool":"企业知识库检索","status":"completed","message":"企业知识库检索执行完成","type":"tool"}
 
-Windows PowerShell 将中文直接传给 `curl.exe` 时，可能使用本地代码页编码，导致服务端无法按 UTF-8 解析请求体。上例使用 JSON Unicode 转义以确保兼容性。命令已保持单行，不依赖 PowerShell 的反引号、Bash 的反斜杠或 CMD 的脱字符续行。若希望直接输入中文，使用 PowerShell 的 `Invoke-RestMethod` 并显式传入 UTF-8 字节：
+event: message
+data: {"content":"一级统筹并非所有组织都必须经过……","type":"message"}
+
+event: done
+data: {"type":"done"}
+```
+
+五类公开事件：
+
+| 事件 | 说明 |
+| --- | --- |
+| `status` | 请求已进入处理流程 |
+| `tool` | 安全、概括的工具开始或完成状态 |
+| `message` | 面向用户的最终回答文本增量 |
+| `error` | 响应开始后的结构化错误，随后结束连接 |
+| `done` | 流正常完成，且完整会话历史已经保存 |
+
+SSE 路由不理解也不转发 LangGraph 原始事件，不输出 reasoning、系统提示词、Tool 参数或原始 Tool 结果。客户端中途断开或执行异常时不保存残缺历史；Swagger UI 不适合观察响应时序，建议使用 `curl -N` 或支持流读取的客户端。
+
+## 会话边界
+
+`userId + sessionId` 在当前进程内唯一标识会话，`InMemorySessionStore` 最多保留最近 20 条消息。服务重启后历史丢失，且不支持多实例共享；当前没有 Redis 或 LangGraph Checkpointer。
+
+## 当前 Tool 与 RAG 边界
+
+| Tool | 数据来源 |
+| --- | --- |
+| `get_requirement_by_no` | Java 需求详情 API |
+| `search_requirements` | Java 组合条件分页 API |
+| `get_requirement_progress` | Java 需求进度 API |
+| `search_knowledge` | Chroma Markdown 知识索引，固定 TopK 3 |
+
+当前 RAG 只做向量 TopK 召回，不包含相似度阈值、Rerank、Hybrid Search、Query Rewrite 或自动评测。系统提示词暂不允许在同一轮组合结构化需求 Tool 与知识库 Tool。
+
+## Windows 中文请求
+
+PowerShell 直接将中文传给 `curl.exe` 时可能使用本地代码页。可以将中文写成 JSON Unicode 转义，或显式传入 UTF-8 字节：
 
 ```powershell
 $body = @{
@@ -128,9 +172,9 @@ Invoke-RestMethod `
   -Body $bytes
 ```
 
-同一组 `userId` 与 `sessionId` 会保留最近 20 条对话上下文；服务重启后会清空。也可以访问 `http://localhost:8000/docs` 在 Swagger 页面调试 `/chat`。
+## 测试与静态检查
 
-测试与静态检查：
+Python 环境及验证由维护者执行：
 
 ```bash
 uv lock
@@ -139,44 +183,4 @@ uv run ruff check .
 uv run mypy app tests
 ```
 
-## Markdown 知识文档预览
-
-业务知识文档位于仓库根目录的 `knowledge/`，当前只递归加载 UTF-8 Markdown
-文件。可在 `agent/` 目录运行以下命令，人工查看文档及文本块数量、来源和正文：
-
-```bash
-uv run python -m app.rag.preview
-```
-
-如需临时预览其他目录，可设置 `KNOWLEDGE_ROOT` 环境变量。切分器优先使用
-Markdown 标题和自然段边界，默认目标长度为 700 字符；超长段落优先在中文句末
-继续切分，并保留约 100 字符重叠，兼顾业务章节完整性和边界上下文。
-
-## 本地知识向量索引与检索预览
-
-在 `.env` 或当前终端配置 `SILICONFLOW_API_KEY` 后，可将已经加载和切分的
-Markdown 文档批量提交到硅基流动 Embedding API，并完整重建本地索引：
-
-```bash
-uv run python -m app.rag.indexer
-```
-
-索引命令会输出知识库目录、文档与 chunk 数量、Embedding 模型、collection、
-持久化目录和实际写入数量。当前采用“构建前删除 collection，再完整写入”的策略，
-因此重复执行不会累积重复 chunk，已经从知识库删除的文档也不会残留在索引中。
-
-使用相同模型生成问题向量并预览最相关的三个文本块：
-
-```bash
-uv run python -m app.rag.search_preview "为什么需求既可以删除，也可以废弃？"
-uv run python -m app.rag.search_preview "一级统筹是不是必须经过？" --top-k 5
-```
-
-输出中的 `distance` 是 Chroma 距离，数值越小表示越相关。Chroma 使用
-`PersistentClient` 在 `agent/data/chroma/` 持久化，不需要启动独立服务；该目录已被
-Git 忽略，不提交本地索引文件。相对的 `CHROMA_PERSIST_DIRECTORY` 始终以 `agent/`
-为基准，不依赖启动命令所在目录。
-
-索引记录了构建时的 Embedding 模型。更换 `SILICONFLOW_EMBEDDING_MODEL` 后必须重新
-运行索引命令，否则检索会明确拒绝模型不一致的索引。当前阶段只返回相关文本块及
-来源，不生成最终答案、不接入 Agent，也不增加 FastAPI 接口。
+测试使用 Fake Model、Fake Retriever、`httpx.MockTransport` 和临时 Chroma，不访问真实 Java、DeepSeek 或 SiliconFlow 服务。完整跨模块说明见 [当前调用链](../docs/current-flow.md)，Java 接口契约见 [需求查询 API](../docs/requirement-api.md)。

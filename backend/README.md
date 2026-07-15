@@ -223,9 +223,9 @@ docker/mysql/conf.d/
 
 ## 当前边界
 
-当前不包含：
+Java 后端当前不包含：
 
 - 创建、修改、审批或删除需求
 - 合同、订单和履约模块
 - 登录认证
-- RAG、MCP 或自然语言 SQL
+- RAG、MCP 或自然语言 SQL（RAG 位于 Python Agent 服务，不由 Java 后端承载）

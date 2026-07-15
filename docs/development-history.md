@@ -62,7 +62,7 @@
 
 - 接入 OpenAI-compatible DeepSeek ChatModel。
 - 使用 LangGraph 编排模型判断、工具调用和最终回答。
-- 注册三个只读需求查询工具，并限制最多连续三轮工具调用。
+- 本阶段注册三个只读需求查询工具，并限制最多连续三轮工具调用；阶段 11 接入知识检索后，当前总数为四个 Tool。
 - 增加基础多轮消息上下文和缺少 API Key 时的明确错误。
 - 使用 Fake ChatModel 测试 Agent 流程，不调用真实 DeepSeek。
 
@@ -113,5 +113,5 @@
 - 已将现有 `KnowledgeRetriever` 封装为 `search_knowledge` Tool，并接入当前 LangGraph 的模型绑定与工具分发流程。
 - 已按应用生命周期注入 Embedding Provider、Chroma VectorStore 和 Retriever，服务关闭时释放 HTTP 连接，且不会自动构建索引。
 - 已补充知识回答约束、来源引用规则、安全错误结果和“企业知识库检索”SSE 状态展示。
-- 已使用 Fake Model、Fake Retriever 和临时 Chroma 增加隔离测试；Python 测试与静态检查等待维护者验收。
+- 已使用 Fake Model、Fake Retriever 和临时 Chroma 增加隔离测试，覆盖 Tool 分发、来源引用、无结果拒答和索引模型校验。
 - 本阶段未修改 Java 后端，未组合结构化业务查询与知识库检索。

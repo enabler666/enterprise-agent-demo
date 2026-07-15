@@ -34,13 +34,11 @@ async def stream_chat(payload: ChatRequest, request: Request) -> StreamingRespon
     """以项目自有业务事件输出 SSE，不向路由暴露 LangGraph 原始事件。"""
     service: ChatService = request.app.state.chat_service
 
-    # 下面的东西实际上是个Python方法，在方法里面写了个方法，可以不接受参数，直接获取外部方法的变量，叫做Python的闭包机制
+    # 闭包直接引用本次请求的 service 与 payload，作为 StreamingResponse 的事件源。
     async def event_source() -> AsyncIterator[str]:
-        # async for 循环，每次迭代返回一个异步事件，可以理解为有个while(True)的循环，async for算是语法糖
+        # async for 消费异步事件流；异步生成器通过 yield 分批输出已编码的 SSE 事件。
         async for event in service.stream_chat(payload):
-            # 格式化返回事件变成Json
             data = json.dumps(asdict(event), ensure_ascii=False, separators=(",", ":"))
-            # yield差不多意思是允许函数继续执行的return，但是不会阻塞函数的执行，而是返回一个异步迭代器
             yield f"event: {event.type}\ndata: {data}\n\n"
 
     return StreamingResponse(

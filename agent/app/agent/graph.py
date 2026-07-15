@@ -63,7 +63,6 @@ class RequirementAgent:
         builder.add_edge("tools", "model")
         # LangGraph 必须 compile 后才可调用；编译会检查孤立节点和边连接。
         self._graph = builder.compile()
-        # graph的可行一条路径 model(最开始注册模型时提供了tool) -> 语言模型返回了标准的json，表示需要一个工具调用 -> tools节点 -> model节点(查询信息放到了上下文,再次模型推理) -> end
 
     async def ask(
         self, user_message: str, history: list[BaseMessage] | None = None
@@ -84,22 +83,20 @@ class RequirementAgent:
         """将 LangGraph 原生流转换为稳定的业务事件，并返回最终完整历史。"""
         initial_messages = [*(history or []), HumanMessage(content=user_message)]
         completed_messages: list[BaseMessage] = []
-        # 先返回一个状态事件，告诉客户端请求已接收
+        # 对外仅发布稳定的业务事件，避免客户端依赖 LangGraph 原始事件格式。
         yield StatusEvent()
 
-        # 和之前的self._graph.ainvoke不同，这次是流式的执行，会返回一个异步迭代器，每次迭代返回一个事件
+        # async for 消费 LangGraph 异步事件流；messages 提供文本增量，updates 提供节点结果。
         async for mode, data in self._graph.astream(
             {"messages": initial_messages, "tool_rounds": 0},
-            # 允许返回的mode
             stream_mode=["messages", "updates"],
         ):
-            # 如果是消息事件，且是模型节点，且是最终文本，才返回给客户端
             if mode == "messages":
                 chunk, metadata = data
                 if metadata.get("langgraph_node") != "model":
                     continue
                 if isinstance(chunk, AIMessageChunk) and not chunk.tool_call_chunks:
-                    # DeepSeek reasoning_content 属于内部推理；这里只转发标准最终文本 content。
+                    # reasoning_content 属于模型内部推理，只向客户端转发最终文本 content。
                     content = chunk.text
                     if content:
                         yield MessageEvent(content=content)
@@ -115,14 +112,12 @@ class RequirementAgent:
                     completed_messages.extend(
                         message for message in messages if isinstance(message, BaseMessage)
                     )
-                # 如果是模型节点，且是工具调用，才返回给客户端表示工具调用开始
                 if node_name == "model":
                     for message in messages:
                         if isinstance(message, AIMessage):
                             for tool_call in message.tool_calls:
                                 tool_name = tool_call.get("name", "")
                                 yield self._tool_event(tool_name, "started")
-                # 如果是工具节点，且是工具调用完成，才返回给客户端
                 elif node_name == "tools":
                     for message in messages:
                         if isinstance(message, ToolMessage):
