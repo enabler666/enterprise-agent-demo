@@ -268,3 +268,4 @@ uv run mypy app tests
 - [需求查询 API 契约](docs/requirement-api.md)
 - [当前调用链与架构边界](docs/current-flow.md)
 - [开发路径与迭代记录](docs/development-history.md)
+- [功能想法与计划](docs/feature-ideas.md)
