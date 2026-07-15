@@ -5,9 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
-from langchain_core.messages import BaseMessage
-
-
 @dataclass(frozen=True)
 class StatusEvent:
     type: Literal["status"] = "status"
@@ -42,13 +39,3 @@ class DoneEvent:
 
 
 AgentStreamEvent: TypeAlias = StatusEvent | ToolEvent | MessageEvent | ErrorEvent | DoneEvent
-
-
-@dataclass(frozen=True)
-class StreamCompletedEvent:
-    """Agent 与 ChatService 之间的内部事件，不发送给客户端。"""
-
-    history: list[BaseMessage]
-
-
-AgentExecutionEvent: TypeAlias = AgentStreamEvent | StreamCompletedEvent

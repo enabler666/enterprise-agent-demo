@@ -120,9 +120,9 @@ flowchart LR
 | `tool` | 工具开始或完成的概括状态，不含 Tool 参数和原始结果 |
 | `message` | 面向用户的最终回答文本增量，不含模型 reasoning |
 | `error` | SSE 响应开始后发生的结构化错误 |
-| `done` | 本轮正常完成，且完整会话历史已经保存 |
+| `done` | 本轮 LangGraph 流正常完成 |
 
-只有流正常完成后才保存本轮历史。客户端中途断开或执行异常时不会保存残缺历史；响应开始后的异常使用 `error` 事件返回，因为此时不能再修改 HTTP 状态码。向最终用户返回的知识结果不会包含向量、distance、chunk ID、本地绝对路径等内部字段。
+Graph State 由 SQLite Checkpointer 在节点完成时保存，SSE 不再维护或保存第二套历史；响应开始后的异常使用 `error` 事件返回，因为此时不能再修改 HTTP 状态码。向最终用户返回的知识结果不会包含向量、distance、chunk ID、本地绝对路径等内部字段。
 
 ## 技术栈
 
@@ -245,7 +245,7 @@ uv run mypy app tests
 当前边界：
 
 - 仅支持需求只读查询与需求管理知识问答，不支持业务写操作、合同或订单查询。
-- 会话由 `InMemorySessionStore` 保存在单个 Python 进程内，服务重启后丢失，不支持多实例共享。
+- 会话 State 由 SQLite LangGraph Checkpointer 按 `userId + sessionId` 生成的稳定线程标识持久化，可在单实例服务重启后恢复；SQLite 不支持多实例共享。
 - 不支持用户认证与数据权限控制。
 - 当前 RAG 只有 TopK 向量召回，不含召回阈值、Rerank、Hybrid Search、Query Rewrite 或自动评测。
 - 暂不支持同一轮组合业务数据 Tool 与知识库 Tool。
@@ -257,7 +257,7 @@ uv run mypy app tests
 - 建立 RAG 测试集与召回评估，引入相似度阈值和 Rerank。
 - 评估 Hybrid Search 与 Query Rewrite。
 - 完善 FastAPI 到 Java 的 Trace 透传与耗时监控。
-- 评估 Redis 或 LangGraph Checkpointer，以支持持久化和多实例会话。
+- 后续如需多实例部署，评估支持共享连接的生产级 Checkpointer。
 - 增加认证与权限控制。
 
 ## 文档入口

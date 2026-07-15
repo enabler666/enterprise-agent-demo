@@ -21,6 +21,7 @@ SILICONFLOW_BASE_URL=https://api.siliconflow.cn/v1
 SILICONFLOW_EMBEDDING_MODEL=BAAI/bge-m3
 CHROMA_PERSIST_DIRECTORY=data/chroma
 CHROMA_COLLECTION_NAME=requirement_knowledge
+CHECKPOINT_DB_PATH=data/checkpoints.sqlite
 ```
 
 Agent 不直接访问数据库。缺少 `DEEPSEEK_API_KEY` 时 `/health` 仍可用，普通 `/chat` 返回 HTTP 503，已开始的 SSE 流返回 `AGENT_UNAVAILABLE` 类型的 `error` 事件。
@@ -133,13 +134,13 @@ data: {"type":"done"}
 | `tool` | 安全、概括的工具开始或完成状态 |
 | `message` | 面向用户的最终回答文本增量 |
 | `error` | 响应开始后的结构化错误，随后结束连接 |
-| `done` | 流正常完成，且完整会话历史已经保存 |
+| `done` | LangGraph 流正常完成 |
 
-SSE 路由不理解也不转发 LangGraph 原始事件，不输出 reasoning、系统提示词、Tool 参数或原始 Tool 结果。客户端中途断开或执行异常时不保存残缺历史；Swagger UI 不适合观察响应时序，建议使用 `curl -N` 或支持流读取的客户端。
+SSE 路由不理解也不转发 LangGraph 原始事件，不输出 reasoning、系统提示词、Tool 参数或原始 Tool 结果。Graph State 由 Checkpointer 在节点完成时保存，SSE 不维护第二套历史；Swagger UI 不适合观察响应时序，建议使用 `curl -N` 或支持流读取的客户端。
 
 ## 会话边界
 
-`userId + sessionId` 在当前进程内唯一标识会话，`InMemorySessionStore` 最多保留最近 20 条消息。服务重启后历史丢失，且不支持多实例共享；当前没有 Redis 或 LangGraph Checkpointer。
+`userId + sessionId` 经集中哈希生成固定长度的 LangGraph `thread_id`。普通与 SSE 接口只提交本轮消息，由 SQLite Checkpointer 恢复和保存线程 State，因此服务重启后可以继续会话。默认文件为 `agent/data/checkpoints.sqlite`；`CHECKPOINT_DB_PATH` 相对路径以 `agent/` 为基准。SQLite 适合本地单实例 Demo，不用于多实例共享。
 
 ## 当前 Tool 与 RAG 边界
 

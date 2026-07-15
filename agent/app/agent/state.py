@@ -11,7 +11,7 @@ class RequirementAgentState(TypedDict):
     """图中各节点共享的状态。
 
 ``Annotated`` 将 ``add_messages`` 注册为 reducer；节点返回的新消息会追加到历史中，
-因此调用方可把上一轮消息重新传入，实现基础多轮上下文。
+Checkpointer 按 thread_id 恢复该字段。tool_rounds 只控制单次用户轮次，调用入口每轮重置。
 """
 
     messages: Annotated[list[AnyMessage], add_messages]

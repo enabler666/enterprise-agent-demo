@@ -1,21 +1,20 @@
-"""聊天服务：连接 FastAPI 请求、会话历史与需求 Agent。"""
+"""聊天服务：连接 FastAPI 请求与持久化需求 Agent。"""
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Protocol
+from contextlib import AbstractAsyncContextManager
+from typing import Any, Protocol
 
-from app.agent.events import (
-    AgentStreamEvent,
-    DoneEvent,
-    ErrorEvent,
-    StreamCompletedEvent,
-)
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+from app.agent.events import AgentStreamEvent, DoneEvent, ErrorEvent
 from app.agent.graph import AgentRunResult, RequirementAgent, build_requirement_agent
+from app.agent.thread_id import build_thread_id
 from app.clients.requirement_client import RequirementClient
 from app.core.config import Settings
 from app.core.exceptions import AgentConfigurationError
-from app.core.session_store import InMemorySessionStore
 from app.rag.embedding import SiliconFlowEmbeddingProvider
 from app.rag.retriever import KnowledgeRetriever
 from app.rag.vector_store import ChromaVectorStore
@@ -30,58 +29,69 @@ class RequirementAgentFactory(Protocol):
         settings: Settings,
         requirement_tools: RequirementTools,
         knowledge_tools: KnowledgeTools,
+        checkpointer: BaseCheckpointSaver[Any],
     ) -> RequirementAgent: ...
 
 
 class ChatService:
-    """处理单次聊天，并将 Agent 返回的消息历史保存到对应会话。"""
+    """处理聊天请求，线程级状态由 LangGraph Checkpointer 统一维护。"""
 
     def __init__(
         self,
         settings: Settings,
-        session_store: InMemorySessionStore | None = None,
+        checkpointer: BaseCheckpointSaver[Any] | None = None,
         agent_factory: RequirementAgentFactory = build_requirement_agent,
     ) -> None:
         self._settings = settings
-        self._session_store = session_store or InMemorySessionStore()
+        self._checkpointer = checkpointer
+        self._checkpointer_context: AbstractAsyncContextManager[
+            AsyncSqliteSaver
+        ] | None = None
         self._agent_factory = agent_factory
         self._client: RequirementClient | None = None
         self._embedding_provider: SiliconFlowEmbeddingProvider | None = None
         self._agent: RequirementAgent | None = None
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
-        history = await self._session_store.get(request.user_id, request.session_id)
-        result = await self._get_agent().ask(request.message, history=history)
-        await self._session_store.save(request.user_id, request.session_id, result.history)
+        result = await self._get_agent().ask(
+            request.message, thread_id=build_thread_id(request.user_id, request.session_id)
+        )
         return ChatResponse(
             answer=result.answer, user_id=request.user_id, session_id=request.session_id
         )
 
     async def stream_chat(self, request: ChatRequest) -> AsyncIterator[AgentStreamEvent]:
-        """流式执行一轮聊天；仅在正常完成后保存会话。"""
-        history = await self._session_store.get(request.user_id, request.session_id)
-        completed = False
+        """流式执行一轮聊天；Graph 节点 checkpoint 与 SSE 事件相互独立。"""
         try:
             agent = self._get_agent()
             # async for 消费 Agent 的异步事件流，不阻塞事件循环中的其他任务。
-            async for event in agent.stream(request.message, history=history):
-                if isinstance(event, StreamCompletedEvent):
-                    # await 在存储完成前挂起当前协程；只有收到内部完成事件才保存完整历史。
-                    await self._session_store.save(
-                        request.user_id, request.session_id, event.history
-                    )
-                    completed = True
-                    continue
+            async for event in agent.stream(
+                request.message,
+                thread_id=build_thread_id(request.user_id, request.session_id),
+            ):
                 yield event
-            if completed:
-                yield DoneEvent()
-            else:
-                yield ErrorEvent(code="STREAM_ERROR", message="流式聊天未正常完成")
+            yield DoneEvent()
         except AgentConfigurationError as error:
             yield ErrorEvent(code="AGENT_UNAVAILABLE", message=str(error))
         except Exception:
             # SSE 响应开始后不能再修改 HTTP 状态码，也不能暴露内部异常细节。
             yield ErrorEvent(code="STREAM_ERROR", message="流式聊天执行失败，请稍后重试")
+
+    async def start(self) -> None:
+        """创建 SQLite Checkpointer；测试可注入内存或临时实现。"""
+        if self._checkpointer is not None:
+            return
+        path = self._settings.checkpoint_db_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        context = AsyncSqliteSaver.from_conn_string(str(path))
+        checkpointer = await context.__aenter__()
+        try:
+            await checkpointer.setup()
+        except BaseException:
+            await context.__aexit__(None, None, None)
+            raise
+        self._checkpointer_context = context
+        self._checkpointer = checkpointer
 
     async def close(self) -> None:
         """应用关闭时释放由 Client 持有的 HTTP 连接池。"""
@@ -89,10 +99,16 @@ class ChatService:
             await self._client.close()
         if self._embedding_provider is not None:
             await self._embedding_provider.close()
+        if self._checkpointer_context is not None:
+            await self._checkpointer_context.__aexit__(None, None, None)
+            self._checkpointer_context = None
+            self._checkpointer = None
 
     def _get_agent(self) -> RequirementAgent:
         """惰性创建：/health 不需要模型 Key 或 Java 后端即可工作。"""
         if self._agent is None:
+            if self._checkpointer is None:
+                raise RuntimeError("ChatService.start() must be called before chat")
             self._client = RequirementClient(self._settings)
             requirement_tools = RequirementTools(self._client)
             retriever: KnowledgeRetriever | None = None
@@ -109,6 +125,9 @@ class ChatService:
                 retriever = KnowledgeRetriever(self._embedding_provider, vector_store)
             knowledge_tools = KnowledgeTools(retriever)
             self._agent = self._agent_factory(
-                self._settings, requirement_tools, knowledge_tools
+                self._settings,
+                requirement_tools,
+                knowledge_tools,
+                self._checkpointer,
             )
         return self._agent

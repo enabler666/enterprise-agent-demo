@@ -4,6 +4,7 @@ from typing import Any, cast
 import pytest
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.runnables import Runnable
+from langgraph.checkpoint.memory import InMemorySaver
 
 from app.agent.events import ToolEvent
 from app.agent.graph import RequirementAgent
@@ -81,35 +82,36 @@ def test_agent_calls_tool_then_generates_final_answer() -> None:
         ]
     )
     model = cast(Runnable[Any, BaseMessage], fake_model)
-    agent = RequirementAgent(model, RequirementTools(StubBackend()), KnowledgeTools(None))
+    agent = RequirementAgent(
+        model, RequirementTools(StubBackend()), KnowledgeTools(None), InMemorySaver()
+    )
 
-    result = asyncio.run(agent.ask("查询 XQ202607001"))
+    result = asyncio.run(agent.ask("查询 XQ202607001", thread_id="tool-test"))
 
     assert result.answer == "需求 XQ202607001 当前处于部门负责人审批。"
-    assert any(isinstance(message, ToolMessage) for message in result.history)
+    assert any(isinstance(message, ToolMessage) for message in fake_model.inputs[-1])
     assert len(fake_model.inputs) == 2
 
 
-def test_agent_accepts_previous_history_for_next_turn() -> None:
-    first_model = FakeChatModel([AIMessage(content="请提供需求编号。")])
-    first_agent = RequirementAgent(
-        cast(Runnable[Any, BaseMessage], first_model),
+def test_agent_restores_previous_thread_state_without_resubmitting_history() -> None:
+    model = FakeChatModel(
+        [AIMessage(content="已记住。"), AIMessage(content="编号是 XQ202607001。")]
+    )
+    agent = RequirementAgent(
+        cast(Runnable[Any, BaseMessage], model),
         RequirementTools(StubBackend()),
         KnowledgeTools(None),
+        InMemorySaver(),
     )
-    first = asyncio.run(first_agent.ask("帮我查一下需求"))
 
-    second_model = FakeChatModel([AIMessage(content="好的，我来查询。")])
-    second_agent = RequirementAgent(
-        cast(Runnable[Any, BaseMessage], second_model),
-        RequirementTools(StubBackend()),
-        KnowledgeTools(None),
-    )
-    second = asyncio.run(second_agent.ask("编号是 XQ202607001", history=first.history))
+    async def run() -> None:
+        await agent.ask("请记住编号 XQ202607001", thread_id="same-thread")
+        await agent.ask("我刚才提到的编号是什么？", thread_id="same-thread")
 
-    assert second.answer == "好的，我来查询。"
-    # system message 之外，第二轮模型能看到第一轮历史和新用户消息。
-    assert len(second_model.inputs[0]) >= 4
+    asyncio.run(run())
+
+    assert len(model.inputs[0]) == 2
+    assert len(model.inputs[1]) == 4
 
 
 def test_missing_api_key_returns_configuration_error_without_network_call() -> None:
@@ -164,15 +166,16 @@ def test_knowledge_question_calls_tool_and_final_answer_has_unique_source() -> N
         cast(Runnable[Any, BaseMessage], fake_model),
         RequirementTools(StubBackend()),
         KnowledgeTools(retriever),
+        InMemorySaver(),
     )
 
-    result = asyncio.run(agent.ask(question))
+    result = asyncio.run(agent.ask(question, thread_id="knowledge-test"))
 
     assert retriever.queries == [(question, 3)]
     assert "参考来源" in result.answer
     assert result.answer.count("需求提报及流转相关说明.md") == 1
     tool_message = next(
-        message for message in result.history if isinstance(message, ToolMessage)
+        message for message in fake_model.inputs[-1] if isinstance(message, ToolMessage)
     )
     assert "document_title" in tool_message.text
     assert "distance" not in tool_message.text
@@ -200,12 +203,13 @@ def test_search_knowledge_stream_events_use_readable_label() -> None:
         cast(Runnable[Any, BaseMessage], fake_model),
         RequirementTools(StubBackend()),
         KnowledgeTools(StubKnowledgeRetriever()),
+        InMemorySaver(),
     )
 
     async def collect() -> list[ToolEvent]:
         return [
             event
-            async for event in agent.stream("为什么删除和废弃不同？")
+            async for event in agent.stream("为什么删除和废弃不同？", thread_id="stream-test")
             if isinstance(event, ToolEvent)
         ]
 
@@ -260,13 +264,16 @@ def test_empty_knowledge_result_leads_to_explicit_insufficient_information_answe
         cast(Runnable[Any, BaseMessage], fake_model),
         RequirementTools(StubBackend()),
         KnowledgeTools(EmptyRetriever()),
+        InMemorySaver(),
     )
 
-    result = asyncio.run(agent.ask("公司内部的未知审批规则是什么？"))
+    result = asyncio.run(
+        agent.ask("公司内部的未知审批规则是什么？", thread_id="empty-test")
+    )
 
     assert result.answer == "知识库中未找到足够信息，无法确认该内部规则。"
     tool_message = next(
-        message for message in result.history if isinstance(message, ToolMessage)
+        message for message in fake_model.inputs[-1] if isinstance(message, ToolMessage)
     )
     assert '"status":"NO_RESULT"' in tool_message.text
     assert '"data":null' in tool_message.text

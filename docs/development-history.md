@@ -115,3 +115,13 @@
 - 已补充知识回答约束、来源引用规则、安全错误结果和“企业知识库检索”SSE 状态展示。
 - 已使用 Fake Model、Fake Retriever 和临时 Chroma 增加隔离测试，覆盖 Tool 分发、来源引用、无结果拒答和索引模型校验。
 - 本阶段未修改 Java 后端，未组合结构化业务查询与知识库检索。
+
+## 阶段 12：LangGraph 持久化线程状态
+
+状态：待验收
+
+- 已使用异步 SQLite Checkpointer 替换自定义 InMemorySessionStore，实现线程级短期记忆与服务重启后的 State 恢复，并由应用 lifespan 管理连接资源。
+- 普通聊天与 SSE 流式聊天共用由用户和会话生成的稳定 thread_id，只提交本轮消息且重置 Tool 轮次，由 Checkpointer 作为唯一线程级状态来源。
+- 业务数据库保存需求、工单等业务事实；Checkpointer 保存 thread 范围内的 Graph State 和执行快照；模型上下文由 Graph 节点从 State 中选择并组装，本阶段暂不裁剪。
+- 已补充线程上下文、用户与会话隔离、消息去重、Tool 配对与轮次重置、SQLite 资源重建恢复、普通与 SSE 共用线程以及异常和中断状态测试，等待维护者执行 Python 依赖锁定与验证。
+- 本阶段不实现 Human-in-the-loop、长期记忆、消息摘要或裁剪等后续能力。

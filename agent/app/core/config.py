@@ -25,6 +25,7 @@ class Settings(BaseModel):
     siliconflow_embedding_model: str = "BAAI/bge-m3"
     chroma_persist_directory: Path = Path("data/chroma")
     chroma_collection_name: str = "requirement_knowledge"
+    checkpoint_db_path: Path = Path("data/checkpoints.sqlite")
 
     @classmethod
     def from_environment(cls) -> Settings:
@@ -37,6 +38,11 @@ class Settings(BaseModel):
         persist_directory = Path(os.getenv("CHROMA_PERSIST_DIRECTORY", "data/chroma"))
         if not persist_directory.is_absolute():
             persist_directory = agent_root / persist_directory
+        checkpoint_db_path = Path(
+            os.getenv("CHECKPOINT_DB_PATH", "data/checkpoints.sqlite")
+        )
+        if not checkpoint_db_path.is_absolute():
+            checkpoint_db_path = agent_root / checkpoint_db_path
         siliconflow_api_key = os.getenv("SILICONFLOW_API_KEY")
         return cls(
             deepseek_api_key=SecretStr(api_key) if api_key else None,
@@ -57,4 +63,5 @@ class Settings(BaseModel):
             chroma_collection_name=os.getenv(
                 "CHROMA_COLLECTION_NAME", "requirement_knowledge"
             ),
+            checkpoint_db_path=checkpoint_db_path.resolve(),
         )

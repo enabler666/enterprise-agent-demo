@@ -19,6 +19,7 @@
 .coverage
 htmlcov/
 agent/data/chroma/
+agent/data/*.sqlite*
 
 # OS
 .DS_Store

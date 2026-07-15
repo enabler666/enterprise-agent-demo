@@ -18,6 +18,8 @@ class HealthResponse(BaseModel):
 class ChatServiceLike(Protocol):
     """应用工厂依赖的最小聊天服务接口，便于测试替换。"""
 
+    async def start(self) -> None: ...
+
     async def close(self) -> None: ...
 
 
@@ -26,6 +28,7 @@ def create_app(chat_service: ChatServiceLike | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        await app.state.chat_service.start()
         try:
             yield
         finally:

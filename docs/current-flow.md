@@ -6,7 +6,7 @@
 
 | 模块 | 职责 | 边界 |
 | --- | --- | --- |
-| `agent/` | 提供 `/chat` 与 `/chat/stream`，维护进程内会话，编排 LangGraph，调用 DeepSeek、Java API 和知识索引 | 不直连业务数据库；不执行写操作 |
+| `agent/` | 提供 `/chat` 与 `/chat/stream`，以 SQLite Checkpointer 持久化线程 State，编排 LangGraph，调用 DeepSeek、Java API 和知识索引 | 不直连业务数据库；不执行写操作 |
 | `backend/` | 提供需求详情、组合检索和进度查询 API，按 Controller → Service → Repository 分层 | 只读；通过 Profile 切换内存与 MySQL Repository |
 | `knowledge/` | 保存用于构建索引的 UTF-8 Markdown 业务说明 | 运行时不会自动重建索引 |
 | `docs/` | 保存接口契约、当前调用链和开发阶段记录 | 不承载运行时代码 |
@@ -15,16 +15,16 @@
 
 1. 客户端向 `POST /chat` 或 `POST /chat/stream` 提交 `userId`、`sessionId` 和 `message`。
 2. `agent/app/api/chat.py` 将校验后的 `ChatRequest` 交给 `ChatService`。普通接口返回 `ChatResponse`；流式接口只负责把业务事件编码为 SSE。
-3. `ChatService` 以 `(user_id, session_id)` 为键，从 `InMemorySessionStore` 读取 `list[BaseMessage]` 历史。
-4. 普通调用执行 `RequirementAgent.ask`，成功后保存完整历史。流式调用执行 `RequirementAgent.stream`，仅在收到内部 `StreamCompletedEvent` 后保存完整历史并发送 `done`。
-5. 会话最多保留最近 20 条消息，仅存在当前进程内；服务重启后丢失，也不能跨实例共享。
+3. `ChatService` 通过集中函数将 `(user_id, session_id)` 哈希为固定长度、稳定的 `thread_id`；不同用户即使使用相同 `sessionId` 也不会共享线程。
+4. 普通与流式调用都只提交本轮 `HumanMessage`、重置为 `0` 的 `tool_rounds` 以及包含 `thread_id` 的 config。Graph 从 Checkpointer 自动恢复原有 `messages`，调用方不再读取、拼接或保存完整历史。
+5. FastAPI lifespan 创建并初始化同一个 `AsyncSqliteSaver`，Agent 用它编译 Graph，关闭服务时释放 SQLite 连接。默认数据库为 `agent/data/checkpoints.sqlite`，可通过 `CHECKPOINT_DB_PATH` 配置；相对路径按 `agent/` 目录解析。
 
 ## LangGraph 执行流程
 
 `RequirementAgentState` 包含共享的 `messages` 和 `tool_rounds`：
 
 - `messages` 使用 `add_messages` reducer 追加 Human、AI 和 Tool 消息。
-- `tool_rounds` 每执行一次工具节点加一，将工具调用循环限制为最多三轮。
+- `tool_rounds` 每执行一次工具节点加一，将工具调用循环限制为最多三轮；每次新用户输入都重置为 `0`，不会跨用户轮次累计。
 
 ```mermaid
 flowchart LR
@@ -75,8 +75,9 @@ sequenceDiagram
     participant D as 内存或 MySQL
 
     U->>F: POST /chat 或 /chat/stream
-    F->>F: 按 userId + sessionId 读取历史
-    F->>G: ask/stream(message, history)
+    F->>F: userId + sessionId → thread_id
+    F->>G: ask/stream(本轮 message, thread config)
+    G->>G: Checkpointer 恢复线程 State
     G->>L: system prompt + messages
     L-->>G: tool_calls(name, args, id)
     G->>T: 校验参数并分派
@@ -131,7 +132,7 @@ sequenceDiagram
     E-->>C: vectors + content + source metadata
 
     U->>F: 一级统筹是不是必须经过？
-    F->>G: ask/stream(message, history)
+    F->>G: ask/stream(本轮 message, thread config)
     G->>L: system prompt + messages
     L-->>G: search_knowledge(query)
     G->>T: 固定 TopK 3
@@ -148,9 +149,9 @@ sequenceDiagram
     F-->>U: JSON 或 SSE
 ```
 
-## SSE 事件与保存时机
+## SSE 事件与 Checkpoint 时机
 
-`RequirementAgent.stream` 消费 LangGraph 的 `messages + updates` 流式模式：`messages` 仅用于提取模型最终文本，`updates` 用于生成安全的工具状态和收集完整历史。FastAPI 不直接处理 LangGraph 原始事件。
+`RequirementAgent.stream` 消费 LangGraph 的 `messages + updates` 流式模式：`messages` 仅用于提取模型最终文本，`updates` 用于生成安全的工具状态。FastAPI 不直接处理 LangGraph 原始事件，也不保存 token chunk 或重新维护历史。
 
 | 事件 | 来源与语义 |
 | --- | --- |
@@ -158,18 +159,18 @@ sequenceDiagram
 | `tool` | 模型节点与工具节点产生的概括状态，不含参数和原始结果 |
 | `message` | 模型最终回答的文本增量，不含 reasoning 或 tool-call chunk |
 | `error` | SSE 已开始后发生的安全、结构化错误 |
-| `done` | ChatService 已收到内部完成事件并保存完整历史 |
+| `done` | Graph 原生流正常结束 |
 
-只有图正常完成并产生 `StreamCompletedEvent` 后，`ChatService` 才调用 `SessionStore.save`。客户端中途断开会取消异步生成器，执行异常也不会产生内部完成事件，因此残缺历史不会保存。SSE 响应开始后已无法修改 HTTP 状态码，异常统一转为 `error` 事件。
+Checkpointer 在每个完成的 Graph super-step 后保存 State；模型节点完成后会保存 AI tool call，工具节点以带相同 call id 的 `ToolMessage` 完成配对。意外 Tool 异常会转为明确的失败 ToolMessage，避免留下无法配对的消息。模型异常或客户端取消不会破坏之前已完成的 checkpoint；最多保留本轮已经完成节点的状态，不会把 SSE 裸 token chunk 写入 `messages`。SSE 响应开始后无法修改 HTTP 状态码，异常统一转为 `error` 事件。
 
 ## 核心类和方法
 
 | 位置 | 类 / 方法 | 作用 |
 | --- | --- | --- |
-| `agent/app/main.py` | `create_app` | 创建 FastAPI，注入 ChatService，并在 lifespan 关闭 HTTP 连接池 |
+| `agent/app/main.py` | `create_app` | 创建 FastAPI，在 lifespan 启停 ChatService 及 Checkpointer |
 | `agent/app/api/chat.py` | `chat` / `stream_chat` | 普通响应与业务 SSE 编码 |
 | `agent/app/agent/service.py` | `ChatService.chat` / `stream_chat` / `_get_agent` | 连接会话、Agent、Java Client 和 RAG 组件 |
-| `agent/app/core/session_store.py` | `InMemorySessionStore.get` / `save` | 按用户和会话维护进程内消息历史 |
+| `agent/app/agent/thread_id.py` | `build_thread_id` | 集中生成稳定、固定长度的线程标识 |
 | `agent/app/agent/state.py` | `RequirementAgentState` | 定义 `add_messages` 共享状态与工具轮次 |
 | `agent/app/agent/graph.py` | `ask` / `stream` / `_call_model` / `_route_after_model` / `_execute_tools` | LangGraph 普通与流式入口、模型节点、条件边和工具节点 |
 | `agent/app/agent/tool_schemas.py` | `requirement_tool_schemas` | 定义四个只读 Tool 的 JSON Schema |
@@ -204,7 +205,7 @@ sequenceDiagram
 ## 当前限制
 
 - 仅支持需求只读查询和需求管理知识问答，不支持业务写操作、合同或订单查询。
-- 会话存储为进程内 `InMemorySessionStore`，重启丢失，且不跨实例共享。
+- SQLite Checkpointer 支持单实例服务重启恢复；SQLite 不用于多实例共享或生产级高并发。
 - 当前没有认证与数据权限控制。
 - RAG 仅做 TopK 向量召回，不包含 Rerank、相似度阈值或 Hybrid Search。
 - 系统提示词暂不支持同一轮组合结构化业务数据 Tool 与知识库 Tool。

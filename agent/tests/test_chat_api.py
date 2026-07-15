@@ -16,6 +16,9 @@ class FakeChatService:
         self.requests: list[ChatRequest] = []
         self.closed = False
 
+    async def start(self) -> None:
+        pass
+
     async def chat(self, request: ChatRequest) -> ChatResponse:
         if self.configuration_error:
             raise AgentConfigurationError("未配置 DEEPSEEK_API_KEY，无法调用需求 Agent")

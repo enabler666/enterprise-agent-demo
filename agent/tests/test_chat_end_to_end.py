@@ -4,6 +4,7 @@ from typing import Any, cast
 import httpx
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.runnables import Runnable
+from langgraph.checkpoint.memory import InMemorySaver
 
 from app.agent.graph import RequirementAgent
 from app.agent.service import ChatService
@@ -68,14 +69,19 @@ def test_chat_calls_agent_tool_and_mocked_java_backend() -> None:
     http_client = httpx.AsyncClient(transport=httpx.MockTransport(java_backend))
     client = RequirementClient(Settings(), client=http_client)
     model = cast(Runnable[Any, BaseMessage], ToolCallingModel())
-    agent = RequirementAgent(model, RequirementTools(client), KnowledgeTools(None))
+    checkpointer = InMemorySaver()
+    agent = RequirementAgent(
+        model, RequirementTools(client), KnowledgeTools(None), checkpointer
+    )
 
     def factory(
-        _: Settings, __: RequirementTools, ___: KnowledgeTools
+        _: Settings, __: RequirementTools, ___: KnowledgeTools, ____: Any
     ) -> RequirementAgent:
         return agent
 
-    app = create_app(ChatService(Settings(), agent_factory=factory))
+    app = create_app(
+        ChatService(Settings(), checkpointer=checkpointer, agent_factory=factory)
+    )
 
     async def request() -> httpx.Response:
         transport = httpx.ASGITransport(app=app)

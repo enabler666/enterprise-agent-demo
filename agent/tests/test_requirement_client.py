@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -91,15 +92,21 @@ def test_maps_transport_failure() -> None:
         asyncio.run(client.get_requirement_progress("XQ202607001"))
 
 
-def test_settings_reads_environment_without_exposing_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_settings_reads_environment_without_exposing_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-secret")
     monkeypatch.setenv("BACKEND_BASE_URL", "http://backend.example:8080")
+    monkeypatch.setenv("CHECKPOINT_DB_PATH", "data/test-checkpoints.sqlite")
 
     settings = Settings.from_environment()
 
     assert settings.deepseek_api_key is not None
     assert settings.deepseek_api_key.get_secret_value() == "test-secret"
     assert str(settings.backend_base_url) == "http://backend.example:8080/"
+    assert settings.checkpoint_db_path == (
+        Path(__file__).resolve().parents[1] / "data/test-checkpoints.sqlite"
+    )
     assert "test-secret" not in repr(settings)
 
 
