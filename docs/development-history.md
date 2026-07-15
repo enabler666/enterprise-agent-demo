@@ -108,7 +108,7 @@
 
 ## 阶段 11：知识库检索 Tool 与 Agent 接入
 
-状态：待验收
+状态：已完成
 
 - 已将现有 `KnowledgeRetriever` 封装为 `search_knowledge` Tool，并接入当前 LangGraph 的模型绑定与工具分发流程。
 - 已按应用生命周期注入 Embedding Provider、Chroma VectorStore 和 Retriever，服务关闭时释放 HTTP 连接，且不会自动构建索引。
